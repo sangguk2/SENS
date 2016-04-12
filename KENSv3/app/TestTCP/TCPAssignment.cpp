@@ -38,7 +38,7 @@ struct TCPAssignment::socket_fd{
 	int pid;
 	int domain;
 	int protocol;
-	struct sockaddr * addr;
+	struct sockaddr addr;
 	struct TCPAssignment::socket_fd* prev;
 	struct TCPAssignment::socket_fd* next;
 };
@@ -65,10 +65,10 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
 	switch(param.syscallNumber)
 	{
 	case SOCKET:
-		//this->syscall_socket(syscallUUID, pid, param.param1_int, param.param2_int);
+		this->syscall_socket(syscallUUID, pid, param.param1_int, param.param2_int);
 		break;
 	case CLOSE:
-		//this->syscall_close(syscallUUID, pid, param.param1_int);
+		this->syscall_close(syscallUUID, pid, param.param1_int);
 		break;
 	case READ:
 		//this->syscall_read(syscallUUID, pid, param.param1_int, param.param2_ptr, param.param3_int);
@@ -89,9 +89,9 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
 		//		static_cast<socklen_t*>(param.param3_ptr));
 		break;
 	case BIND:
-		//this->syscall_bind(syscallUUID, pid, param.param1_int,
-		//		static_cast<struct sockaddr *>(param.param2_ptr),
-		//		(socklen_t) param.param3_int);
+		this->syscall_bind(syscallUUID, pid, param.param1_int,
+				static_cast<struct sockaddr *>(param.param2_ptr),
+				(socklen_t) param.param3_int);
 		break;
 	case GETSOCKNAME:
 		//this->syscall_getsockname(syscallUUID, pid, param.param1_int,
@@ -159,18 +159,11 @@ int TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, protoco
     return soc->fd;
 }
 
-//syscall_bind(syscallUUID, pid, param.param1_int,
-		//		static_cast<struct sockaddr *>(param.param2_ptr),
-		//		(socklen_t) param.param3_int);
-
-
-int TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct sockaddr * addr ,socklen_t addrlen){
-
-	
-	struct socket_fd = get_socket_by_fd(fd);
-	memcopy(addr,socket_fd->addr,addrlen);
+int TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct sockaddr *addr ,socklen_t addrlen)
+{
+	struct socket_fd *f = get_socket_by_fd(fd);
+	memcpy(addr, &f->addr, addrlen);
 	return 0;
-
 }
 
 
