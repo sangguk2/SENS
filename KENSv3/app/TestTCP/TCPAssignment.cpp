@@ -38,6 +38,7 @@ struct TCPAssignment::socket_fd{
 	int pid;
 	int domain;
 	int protocol;
+	struct sockaddr * addr;
 	struct TCPAssignment::socket_fd* prev;
 	struct TCPAssignment::socket_fd* next;
 };
@@ -157,6 +158,21 @@ int TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, protoco
 
     return soc->fd;
 }
+
+//syscall_bind(syscallUUID, pid, param.param1_int,
+		//		static_cast<struct sockaddr *>(param.param2_ptr),
+		//		(socklen_t) param.param3_int);
+
+
+int TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct sockaddr * addr ,socklen_t addrlen){
+
+	
+	struct socket_fd = get_socket_by_fd(fd);
+	memcopy(addr,socket_fd->addr,addrlen);
+	return 0;
+
+}
+
 
 struct socket_fd* TCPAssignment::get_socket_by_fd(int fd)
 {
