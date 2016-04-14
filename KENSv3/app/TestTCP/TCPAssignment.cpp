@@ -119,8 +119,8 @@ void TCPAssignment::timerCallback(void* payload)
 }
 
 int TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, protocol){
-	struct socket_fd *soc = (socket_fd*)malloc(sizeof(socket_fd));
-	struct socket_fd *trav;
+	socket_fd *soc = (socket_fd*)malloc(sizeof(socket_fd));
+	socket_fd *trav;
 	int fd1 , fd = 2 , inserted = 0;
 	for(trav = socket_head ; trav != socket_tail ; trav = trav->next )
 	{
@@ -159,9 +159,9 @@ int TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, protoco
     return soc->fd;
 }
 
-int TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct sockaddr *addr ,socklen_t addrlen)
+int TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
-	struct socket_fd *f = get_socket_by_fd(fd);
+	socket_fd *f = get_socket_by_fd(fd);
 	memcpy(addr, &f->addr, addrlen);
 	return 0;
 }
@@ -169,7 +169,7 @@ int TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct sockad
 
 struct socket_fd* TCPAssignment::get_socket_by_fd(int fd)
 {
-    struct socket_fd *trav;
+    socket_fd *trav;
 	for(trav = socket_head ; trav != socket_tail ; trav = trav->next )
 	{
         if(trav->fd == fd)
@@ -180,8 +180,8 @@ struct socket_fd* TCPAssignment::get_socket_by_fd(int fd)
 
 int TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 {
-    struct socket_fd* soc = get_socket_by_fd(fd);
-    struct socket_fd* pr = soc->prev;
+    socket_fd* soc = get_socket_by_fd(fd);
+    socket_fd* pr = soc->prev;
     pr->next = soc->next;
     soc->next->prev = pr;
 
