@@ -194,5 +194,56 @@ int TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
     return 1;
 }
 
+void enqueue(queue* q, queue_node* enter){
+	queue_node* trav = q->tail;
+	
+	if(trav == NULL){
+		q->head = enter;
+		q->tail = enter;
+	}
+	else if(trav.prev ==NULL){
+
+		q->head = trav;
+		q->tail = enter;
+		trav.next = q->tail;
+		q->tail->prev = trav;
+
+	}
+	else{
+		q->tail =enter;
+		trav->next = q->tail;
+		q->tail->prev = trav;		
+
+
+	}
+
+
+}
+
+
+queue_node* dequeue(queue* q){
+	queue_node* trav = q->head;
+	
+	if(trav == NULL){
+		return NULL;
+	}
+	else if(trav->next ==NULL){
+
+		q->tail =NULL;
+		q->head =NULL;
+		return trav;
+
+	}
+	else{
+		q-> head = trav->next;
+		trav->next->prev = NULL;
+		return trav;
+
+	}
+
+	
+
+}
+
 ///namespace closing parenthesis
 }

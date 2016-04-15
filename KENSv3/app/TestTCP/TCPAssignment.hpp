@@ -44,7 +44,32 @@ public:
         struct sockaddr addr;
         socket_fd* prev;
         socket_fd* next;
+	queue* backlog;
     };
+
+
+	struct queue_node{
+		
+		int fd;
+		int addr;
+		queue_node* prev;
+		queue_node* next;
+		
+	};
+	struct queue{
+
+		
+		queue_node* head;
+		queue_node* tail;
+
+	};
+
+	
+	void enqueue(queue* q, queue_node* enter);
+	queue_node* dequeue(queue* q);
+
+	
+
     virtual socket_fd* get_socket_by_fd(int fd);
     virtual int syscall_socket(UUID syscallUUID, int pid, int domain, int protocol);
     virtual int syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen);
