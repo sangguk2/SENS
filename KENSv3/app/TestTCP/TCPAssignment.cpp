@@ -153,9 +153,10 @@ void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlo
 	q->current_size =0;
 	q->max_size = backlog;
 	f->syn_queue = q;
-	f-> status =1;;
-	return 0;
-	return -1;
+	f-> status =1;
+	returnSystemCall(syscallUUID, 0);
+
+
 }
 void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
