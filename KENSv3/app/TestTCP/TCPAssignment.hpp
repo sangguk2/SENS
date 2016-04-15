@@ -52,7 +52,7 @@ public:
 	
     struct socket_fd
 	{
-		int status;
+	int status;
         int fd;
         UUID syscallUUID;
         int pid;
@@ -61,11 +61,11 @@ public:
         socket_fd* prev;
         socket_fd* next;
 
-		bool is_passive;
+	bool is_passive;
         struct sockaddr addr;
 
-		queue* syn_queue;
-		queue* established_queue;
+	queue* syn_queue;		
+	queue* established_queue;
     };
 	
 	struct bound_port

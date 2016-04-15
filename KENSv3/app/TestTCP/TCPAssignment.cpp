@@ -149,7 +149,7 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pr
 void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
 {
 	socket_fd *f = get_socket_by_fd(fd);
-	queue *q = (queue*)malloc(sizeof(queue));
+	queue* q = (queue*)malloc(sizeof(queue));
 	q->current_size =0;
 	q->max_size = backlog;
 	f->syn_queue = q;
@@ -255,12 +255,12 @@ void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, socka
 	returnSystemCall(syscallUUID, 0);
 }
 
-void enqueue(queue* q, queue_node* enter){
+void TCPAssignment::enqueue(queue* q, queue_node* enter){
 	queue_node* trav = q->tail;
 	int max = q->max_size;
 	int size =  q->current_size;
 	if(max<=size){
-		printf("queue_size is already full\m");
+		printf("queue_size is already full\n");
 		return;
 	}
 	if(trav == NULL){
@@ -269,7 +269,7 @@ void enqueue(queue* q, queue_node* enter){
 		if(size != 0){printf("queue_size is crazy0\n");};
 		q->current_size = 1;
 	}
-	else if(trav.prev ==NULL){
+	else if(trav->prev == NULL ){
 
 		if(size != 1){
 
@@ -296,7 +296,7 @@ void enqueue(queue* q, queue_node* enter){
 }
 
 
-queue_node* dequeue(queue* q){
+TCPAssignment::queue_node* TCPAssignment::dequeue(queue* q){
 	queue_node* trav = q->head;
 	int size = q->current_size;
 	if(trav == NULL){
