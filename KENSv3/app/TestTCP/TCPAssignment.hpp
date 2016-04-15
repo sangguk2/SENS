@@ -64,13 +64,14 @@ public:
 		bool is_passive;
         struct sockaddr addr;
 
-		queue* syn_queue;
-		queue* established_queue;
+		queue syn_queue;
+		queue established_queue;
     };
 	
 	struct bound_port
 	{
-		unsigned int num;
+		uint16_t port;
+		in_addr_t addr;
 		bound_port* prev;
 		bound_port* next;
 	};

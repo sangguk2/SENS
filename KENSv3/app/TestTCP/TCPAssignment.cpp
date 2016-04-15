@@ -141,11 +141,6 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pr
     returnSystemCall(syscallUUID, soc->fd);
 }
 
-
-
-
-		
-
 void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
 {
 	socket_fd *f = get_socket_by_fd(fd);
@@ -176,7 +171,10 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
 	bound_port* trav;
 	for(trav = port_head.next ; trav != &port_tail ; trav = trav->next)
 	{
-		if(trav->num == ((sockaddr_in*)addr)->sin_port)
+		if( (trav->port == ((sockaddr_in*)addr)->sin_port) &&
+				(trav->addr == htonl(INADDR_ANY) ||
+				 ((sockaddr_in*)addr)->sin_addr.s_addr == htonl(INADDR_ANY) || 
+				 trav->addr == ((sockaddr_in*)addr)->sin_addr.s_addr) )
 		{
 			printf("bind : port overlapped\n");
 			returnSystemCall(syscallUUID, -1);
@@ -188,7 +186,8 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
 	memcpy(&f->addr, addr, addrlen);
 
 	bound_port* p = (bound_port*)malloc(sizeof(bound_port));
-	p->num = ((sockaddr_in*)addr)->sin_port;
+	p->port = ((sockaddr_in*)addr)->sin_port;
+	p->addr = ((sockaddr_in*)addr)->sin_addr.s_addr;
 	p->prev = port_tail.prev;
 	p->next = &port_tail;
 	p->prev->next = p;
@@ -222,7 +221,8 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 	bound_port* trav;
 	for(trav = port_head.next ; trav != &port_tail ; trav = trav->next)
 	{
-		if(trav->num == ((sockaddr_in*)&soc->addr)->sin_port)
+		if(trav->port == ((sockaddr_in*)&soc->addr)->sin_port &&
+				trav->addr == ((sockaddr_in*)&soc->addr)->sin_addr.s_addr)
 		{
 			bound_port* pr = trav->prev;
 			pr->next = trav->next;
