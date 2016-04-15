@@ -146,11 +146,10 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pr
 
 		
 
-int TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
+void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
 {
-	
 	socket_fd *f = get_socket_by_fd(fd);
-	queue q;
+	queue *q = (queue*)malloc(sizeof(queue));
 	q->current_size =0;
 	q->max_size = backlog;
 	f->syn_queue = q;
