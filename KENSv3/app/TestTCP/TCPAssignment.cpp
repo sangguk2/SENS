@@ -100,7 +100,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 {
-
+	
 }
 
 void TCPAssignment::timerCallback(void* payload)
@@ -152,7 +152,8 @@ int TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pro
         soc->prev->next = soc;
         trav->prev = soc;
     }
-
+	
+	soc -> status = 0;
     soc->domain = domain;
     soc->pid = pid;
     soc->protocol = protocol;
@@ -169,6 +170,14 @@ int TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pro
 
 int TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
 {
+	
+	socket_fd *f = get_socket_by_fd(fd);
+	queue q;
+	q->current_size =0;
+	q->max_size = backlog;
+	f->syn_queue = q;
+	f-> status =1;;
+	return 0;
 	return -1;
 }
 int TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
@@ -178,9 +187,14 @@ int TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *add
 	return 0;
 }
 
+//this->syscall_connect(syscallUUID, pid, param.param1_int,
+		//		static_cast<struct sockaddr*>(param.param2_ptr), (socklen_t)param.param3_int);
+
 int TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
-    return 0;
+	
+	
+	return 0;
 }
 
 int TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
@@ -196,24 +210,38 @@ int TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 
 void enqueue(queue* q, queue_node* enter){
 	queue_node* trav = q->tail;
-	
+	int max = q->max_size;
+	int size =  q->current_size;
+	if(max<=size){
+		printf("queue_size is already full\m");
+		return;
+	}
 	if(trav == NULL){
 		q->head = enter;
 		q->tail = enter;
+		if(size != 0){printf("queue_size is crazy0\n");};
+		q->current_size = 1;
 	}
 	else if(trav.prev ==NULL){
 
+		if(size != 1){
+
+			printf("queue_size is crazy1\n");
+		}
 		q->head = trav;
 		q->tail = enter;
-		trav.next = q->tail;
+		trav->next = q->tail;
 		q->tail->prev = trav;
+		q->current_size = 2;
 
 	}
 	else{
+
+		
 		q->tail =enter;
 		trav->next = q->tail;
 		q->tail->prev = trav;		
-
+		q->current_size = size++;
 
 	}
 
@@ -223,26 +251,26 @@ void enqueue(queue* q, queue_node* enter){
 
 queue_node* dequeue(queue* q){
 	queue_node* trav = q->head;
-	
+	int size = q->current_size;
 	if(trav == NULL){
 		return NULL;
 	}
-	else if(trav->next ==NULL){
+	else if(trav->next ==NULL)
+	{
 
 		q->tail =NULL;
 		q->head =NULL;
+		q->current_size = size--;
 		return trav;
 
 	}
 	else{
 		q-> head = trav->next;
 		trav->next->prev = NULL;
+		q->current_size = size++;
 		return trav;
 
 	}
-
-	
-
 }
 
 ///namespace closing parenthesis

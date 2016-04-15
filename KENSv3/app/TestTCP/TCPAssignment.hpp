@@ -36,6 +36,7 @@ public:
 	virtual ~TCPAssignment();
 
     struct socket_fd{
+	int status;
         int fd;
         UUID syscallUUID;
         int pid;
@@ -44,7 +45,8 @@ public:
         struct sockaddr addr;
         socket_fd* prev;
         socket_fd* next;
-	queue* backlog;
+	queue* syn_queue;
+	queue* established_queue
     };
 
 
@@ -58,7 +60,8 @@ public:
 	};
 	struct queue{
 
-		
+		int max_size;
+		int current_size;
 		queue_node* head;
 		queue_node* tail;
 
