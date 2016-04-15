@@ -35,7 +35,24 @@ public:
 	virtual void finalize();
 	virtual ~TCPAssignment();
 
-    struct socket_fd{
+	struct queue_node{	
+		int fd;
+		int addr;
+		queue_node* prev;
+		queue_node* next;
+	};
+
+	struct queue
+	{
+		int max_size;
+		int current_size;
+		queue_node* head;
+		queue_node* tail;
+	};
+	
+    struct socket_fd
+	{
+		int status;
         int fd;
         UUID syscallUUID;
         int pid;
@@ -46,13 +63,20 @@ public:
 
 		bool is_passive;
         struct sockaddr addr;
+
+		queue* syn_queue;
+		queue* established_queue;
     };
 	
-	struct bound_port{
+	struct bound_port
+	{
 		unsigned int num;
 		bound_port* prev;
 		bound_port* next;
 	};
+	
+	virtual void enqueue(queue* q, queue_node* enter);
+	virtual queue_node* dequeue(queue* q);
 
     virtual socket_fd* get_socket_by_fd(int fd);
     virtual void syscall_socket(UUID syscallUUID, int pid, int domain, int protocol);

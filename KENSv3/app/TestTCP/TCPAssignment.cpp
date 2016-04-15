@@ -102,7 +102,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 {
-
+	
 }
 
 void TCPAssignment::timerCallback(void* payload)
@@ -125,6 +125,7 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pr
 {
 	//printf("syscall_socket called\n");
 	socket_fd *soc = (socket_fd*)malloc(sizeof(socket_fd));
+	
 	soc->fd = createFileDescriptor(pid);
     soc->domain = domain;
     soc->pid = pid;
@@ -140,6 +141,23 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pr
     returnSystemCall(syscallUUID, soc->fd);
 }
 
+
+
+
+		
+
+int TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
+{
+	
+	socket_fd *f = get_socket_by_fd(fd);
+	queue q;
+	q->current_size =0;
+	q->max_size = backlog;
+	f->syn_queue = q;
+	f-> status =1;;
+	return 0;
+	return -1;
+}
 void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
 	//printf("syscall_bind called\n");
@@ -180,11 +198,10 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
 	returnSystemCall(syscallUUID, 0);
 }
 
-void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
-{
-	returnSystemCall(syscallUUID, -1);
-}
 
+
+	
+	
 void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
     returnSystemCall(syscallUUID, 0);
@@ -238,5 +255,70 @@ void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, socka
 	returnSystemCall(syscallUUID, 0);
 }
 
-///namespace E closing parenthesis
+void enqueue(queue* q, queue_node* enter){
+	queue_node* trav = q->tail;
+	int max = q->max_size;
+	int size =  q->current_size;
+	if(max<=size){
+		printf("queue_size is already full\m");
+		return;
+	}
+	if(trav == NULL){
+		q->head = enter;
+		q->tail = enter;
+		if(size != 0){printf("queue_size is crazy0\n");};
+		q->current_size = 1;
+	}
+	else if(trav.prev ==NULL){
+
+		if(size != 1){
+
+			printf("queue_size is crazy1\n");
+		}
+		q->head = trav;
+		q->tail = enter;
+		trav->next = q->tail;
+		q->tail->prev = trav;
+		q->current_size = 2;
+
+	}
+	else{
+
+		
+		q->tail =enter;
+		trav->next = q->tail;
+		q->tail->prev = trav;		
+		q->current_size = size++;
+
+	}
+
+
+}
+
+
+queue_node* dequeue(queue* q){
+	queue_node* trav = q->head;
+	int size = q->current_size;
+	if(trav == NULL){
+		return NULL;
+	}
+	else if(trav->next ==NULL)
+	{
+
+		q->tail =NULL;
+		q->head =NULL;
+		q->current_size = size--;
+		return trav;
+
+	}
+	else{
+		q-> head = trav->next;
+		trav->next->prev = NULL;
+		q->current_size = size++;
+		return trav;
+
+	}
+}
+
+///namespace closing parenthesis
 }
