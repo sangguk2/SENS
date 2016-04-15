@@ -167,11 +167,10 @@ int TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pro
 //this->syscall_listen(syscallUUID, pid, param.param1_int, param.param2_int);
 		
 
-int TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog){
-
-	
-	struct socket_fd = get_socket_by_fd(fd);
-	memcpy(addr,socket_fd->addr,addrlen);
+int TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
+{
+	return -1;
+}
 int TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
 	socket_fd *f = get_socket_by_fd(fd);

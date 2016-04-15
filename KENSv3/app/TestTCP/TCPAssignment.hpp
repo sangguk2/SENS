@@ -48,6 +48,7 @@ public:
     virtual socket_fd* get_socket_by_fd(int fd);
     virtual int syscall_socket(UUID syscallUUID, int pid, int domain, int protocol);
     virtual int syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen);
+    virtual int syscall_listen(UUID syscallUUID, int pid, int fd, int backlog);
     virtual int syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen);
     virtual int syscall_close(UUID syscallUUID, int pid, int fd);
 
