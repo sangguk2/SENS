@@ -38,7 +38,7 @@ struct TCPAssignment::socket_fd{
 	int pid;
 	int domain;
 	int protocol;
-	struct sockaddr * addr;
+	struct sockaddr addr;
 	struct TCPAssignment::socket_fd* prev;
 	struct TCPAssignment::socket_fd* next;
 };
@@ -65,10 +65,10 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
 	switch(param.syscallNumber)
 	{
 	case SOCKET:
-		//this->syscall_socket(syscallUUID, pid, param.param1_int, param.param2_int);
+		this->syscall_socket(syscallUUID, pid, param.param1_int, param.param2_int);
 		break;
 	case CLOSE:
-		//this->syscall_close(syscallUUID, pid, param.param1_int);
+		this->syscall_close(syscallUUID, pid, param.param1_int);
 		break;
 	case READ:
 		//this->syscall_read(syscallUUID, pid, param.param1_int, param.param2_ptr, param.param3_int);
@@ -89,9 +89,9 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
 		//		static_cast<socklen_t*>(param.param3_ptr));
 		break;
 	case BIND:
-		//this->syscall_bind(syscallUUID, pid, param.param1_int,
-		//		static_cast<struct sockaddr *>(param.param2_ptr),
-		//		(socklen_t) param.param3_int);
+		this->syscall_bind(syscallUUID, pid, param.param1_int,
+				static_cast<struct sockaddr *>(param.param2_ptr),
+				(socklen_t) param.param3_int);
 		break;
 	case GETSOCKNAME:
 		//this->syscall_getsockname(syscallUUID, pid, param.param1_int,
@@ -119,8 +119,8 @@ void TCPAssignment::timerCallback(void* payload)
 }
 
 int TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, protocol){
-	struct socket_fd *soc = (socket_fd*)malloc(sizeof(socket_fd));
-	struct socket_fd *trav;
+	socket_fd *soc = (socket_fd*)malloc(sizeof(socket_fd));
+	socket_fd *trav;
 	int fd1 , fd = 2 , inserted = 0;
 	for(trav = socket_head ; trav != socket_tail ; trav = trav->next )
 	{
@@ -161,14 +161,6 @@ int TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, protoco
 
 
 
-int TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct sockaddr * addr ,socklen_t addrlen){
-
-	
-	struct socket_fd addr= get_socket_by_fd(fd);
-	memcpy(addr,socket_fd->addr,addrlen);
-	return 0;
-
-}
 
 //this->syscall_listen(syscallUUID, pid, param.param1_int, param.param2_int);
 		
@@ -178,14 +170,17 @@ int TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog
 	
 	struct socket_fd = get_socket_by_fd(fd);
 	memcpy(addr,socket_fd->addr,addrlen);
+int TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
+{
+	socket_fd *f = get_socket_by_fd(fd);
+	memcpy(addr, &f->addr, addrlen);
 	return 0;
-
 }
 
 
 struct socket_fd* TCPAssignment::get_socket_by_fd(int fd)
 {
-    struct socket_fd *trav;
+    socket_fd *trav;
 	for(trav = socket_head ; trav != socket_tail ; trav = trav->next )
 	{
         if(trav->fd == fd)
@@ -196,8 +191,8 @@ struct socket_fd* TCPAssignment::get_socket_by_fd(int fd)
 
 int TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 {
-    struct socket_fd* soc = get_socket_by_fd(fd);
-    struct socket_fd* pr = soc->prev;
+    socket_fd* soc = get_socket_by_fd(fd);
+    socket_fd* pr = soc->prev;
     pr->next = soc->next;
     soc->next->prev = pr;
 
