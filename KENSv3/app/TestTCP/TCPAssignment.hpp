@@ -41,16 +41,26 @@ public:
         int pid;
         int domain;
         int protocol;
-        struct sockaddr addr;
         socket_fd* prev;
         socket_fd* next;
+
+		bool is_passive;
+        struct sockaddr addr;
     };
+	
+	struct bound_port{
+		unsigned int num;
+		bound_port* prev;
+		bound_port* next;
+	};
+
     virtual socket_fd* get_socket_by_fd(int fd);
     virtual void syscall_socket(UUID syscallUUID, int pid, int domain, int protocol);
     virtual void syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen);
     virtual void syscall_listen(UUID syscallUUID, int pid, int fd, int backlog);
     virtual void syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen);
     virtual void syscall_close(UUID syscallUUID, int pid, int fd);
+	virtual void syscall_getsockname(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t *addrlen);
 
 protected:
 	virtual void systemCallback(UUID syscallUUID, int pid, const SystemCallParameter& param) final;

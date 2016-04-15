@@ -35,6 +35,8 @@ TCPAssignment::~TCPAssignment()
 
 static TCPAssignment::socket_fd socket_head, socket_tail;
 
+static TCPAssignment::bound_port port_head, port_tail;
+
 
 void TCPAssignment::initialize()
 {
@@ -43,6 +45,10 @@ void TCPAssignment::initialize()
 	socket_tail.prev = &socket_head;
 	socket_tail.next = NULL;
 
+	port_head.prev = NULL;
+	port_head.next = &port_tail;
+	port_tail.prev = &port_head;
+	port_tail.next = NULL;
 }
 
 void TCPAssignment::finalize()
@@ -82,9 +88,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
 		this->syscall_bind(syscallUUID, pid, param.param1_int, static_cast<struct sockaddr *>(param.param2_ptr), (socklen_t) param.param3_int);
 		break;
 	case GETSOCKNAME:
-		//this->syscall_getsockname(syscallUUID, pid, param.param1_int,
-		//		static_cast<struct sockaddr *>(param.param2_ptr),
-		//		static_cast<socklen_t*>(param.param3_ptr));
+		this->syscall_getsockname(syscallUUID, pid, param.param1_int, static_cast<struct sockaddr *>(param.param2_ptr), static_cast<socklen_t*>(param.param3_ptr));
 		break;
 	case GETPEERNAME:
 		//this->syscall_getpeername(syscallUUID, pid, param.param1_int,
@@ -109,7 +113,7 @@ void TCPAssignment::timerCallback(void* payload)
 TCPAssignment::socket_fd* TCPAssignment::get_socket_by_fd(int fd)
 {
     socket_fd *trav;
-	for(trav = &socket_head ; trav != &socket_tail ; trav = trav->next )
+	for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next )
 	{
         if(trav->fd == fd)
             return trav;
@@ -119,53 +123,60 @@ TCPAssignment::socket_fd* TCPAssignment::get_socket_by_fd(int fd)
 
 void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int protocol)
 {
-	printf("syscall_socket called\n");
+	//printf("syscall_socket called\n");
 	socket_fd *soc = (socket_fd*)malloc(sizeof(socket_fd));
-	socket_fd *trav;
-	int fd1 , fd2 = 2 , inserted = 0;
-	for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next )
-	{
-		fd1 = fd2;
-		fd2 = trav->fd;
-		if(fd2 < fd1 + 1)
-        {
-            printf("file descriptor sorting error\n");
-            exit(0);
-        }
-		if(fd2 > fd1 + 1)
-		{
-            soc->fd = fd1 + 1;
-            soc->next = trav;
-            soc->prev = trav->prev;
-            trav->prev->next = soc;
-            trav->prev = soc;
-            inserted = 1;
-            break;
-		}
-    }
-    if(!inserted)
-    {
-        soc->fd = fd2 + 1;
-        soc->prev = trav->prev;
-        soc->next = trav;
-        soc->prev->next = soc;
-        trav->prev = soc;
-    }
-
+	soc->fd = createFileDescriptor(pid);
     soc->domain = domain;
     soc->pid = pid;
     soc->protocol = protocol;
     soc->syscallUUID = syscallUUID;
-	printf("socket completed. return : %d\n\n", soc->fd);
+	soc->is_passive = false;
+
+	soc->prev = socket_tail.prev;
+	soc->next = &socket_tail;
+	soc->prev->next = soc;
+	socket_tail.prev = soc;
+	//printf("socket completed. return : %d\n\n", soc->fd);
     returnSystemCall(syscallUUID, soc->fd);
 }
 
 void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
-	printf("syscall_bind called\n");
+	//printf("syscall_bind called\n");
 	socket_fd *f = get_socket_by_fd(fd);
-	memcpy(addr, &f->addr, addrlen);
-	printf("bind completed. return : 0\n");
+	if(!f)
+	{
+		printf("bind : invalid fd\n");
+		returnSystemCall(syscallUUID, -1);
+		return;
+	}
+	if(f->is_passive)
+	{
+		printf("bind : bound already\n");
+		returnSystemCall(syscallUUID, -1);
+		return;
+	}
+	bound_port* trav;
+	for(trav = port_head.next ; trav != &port_tail ; trav = trav->next)
+	{
+		if(trav->num == ((sockaddr_in*)addr)->sin_port)
+		{
+			printf("bind : port overlapped\n");
+			returnSystemCall(syscallUUID, -1);
+			return;
+		}
+	}
+
+	f->is_passive = true;
+	memcpy(&f->addr, addr, addrlen);
+
+	bound_port* p = (bound_port*)malloc(sizeof(bound_port));
+	p->num = ((sockaddr_in*)addr)->sin_port;
+	p->prev = port_tail.prev;
+	p->next = &port_tail;
+	p->prev->next = p;
+	port_tail.prev = p;
+	//printf("bind completed. return : 0\n");
 	returnSystemCall(syscallUUID, 0);
 }
 
@@ -181,14 +192,51 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 
 void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 {
+	printf("syscall_close called\n");
     socket_fd* soc = get_socket_by_fd(fd);
+	if(!soc)
+	{
+		printf("invalid fd\n");
+		returnSystemCall(syscallUUID, -1);
+		return;
+	}
+
+	removeFileDescriptor(pid, fd);
+
+	bound_port* trav;
+	for(trav = port_head.next ; trav != &port_tail ; trav = trav->next)
+	{
+		if(trav->num == ((sockaddr_in*)&soc->addr)->sin_port)
+		{
+			bound_port* pr = trav->prev;
+			pr->next = trav->next;
+			pr->next->prev = pr;
+			free(trav);
+			break;
+		}
+	}
+
     socket_fd* pr = soc->prev;
     pr->next = soc->next;
     soc->next->prev = pr;
-
     free(soc);
+	printf("syscall_close returned 0\n");
     returnSystemCall(syscallUUID, 0);
 }
 
-///namespace closing parenthesis
+void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t *addrlen)
+{
+	socket_fd* soc = get_socket_by_fd(fd);
+	if(!soc)
+	{
+		printf("getsockname : invalid fd\n");
+		returnSystemCall(syscallUUID, -1);
+		return;
+	}
+
+	memcpy(addr, &soc->addr, *addrlen);
+	returnSystemCall(syscallUUID, 0);
+}
+
+///namespace E closing parenthesis
 }
