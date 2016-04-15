@@ -159,16 +159,25 @@ int TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, protoco
     return soc->fd;
 }
 
-//syscall_bind(syscallUUID, pid, param.param1_int,
-		//		static_cast<struct sockaddr *>(param.param2_ptr),
-		//		(socklen_t) param.param3_int);
 
 
 int TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct sockaddr * addr ,socklen_t addrlen){
 
 	
+	struct socket_fd addr= get_socket_by_fd(fd);
+	memcpy(addr,socket_fd->addr,addrlen);
+	return 0;
+
+}
+
+//this->syscall_listen(syscallUUID, pid, param.param1_int, param.param2_int);
+		
+
+int TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog){
+
+	
 	struct socket_fd = get_socket_by_fd(fd);
-	memcopy(addr,socket_fd->addr,addrlen);
+	memcpy(addr,socket_fd->addr,addrlen);
 	return 0;
 
 }
