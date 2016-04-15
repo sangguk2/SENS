@@ -33,7 +33,7 @@ TCPAssignment::~TCPAssignment()
 
 
 
-TCPAssignment::socket_fd socket_head, socket_tail;
+static TCPAssignment::socket_fd socket_head, socket_tail;
 
 
 void TCPAssignment::initialize()
@@ -79,9 +79,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
 		//		static_cast<socklen_t*>(param.param3_ptr));
 		break;
 	case BIND:
-		//this->syscall_bind(syscallUUID, pid, param.param1_int,
-		//		static_cast<struct sockaddr *>(param.param2_ptr),
-		//		(socklen_t) param.param3_int);
+		this->syscall_bind(syscallUUID, pid, param.param1_int, static_cast<struct sockaddr *>(param.param2_ptr), (socklen_t) param.param3_int);
 		break;
 	case GETSOCKNAME:
 		//this->syscall_getsockname(syscallUUID, pid, param.param1_int,
@@ -119,12 +117,13 @@ TCPAssignment::socket_fd* TCPAssignment::get_socket_by_fd(int fd)
     return NULL;
 }
 
-int TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int protocol)
+void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int protocol)
 {
+	printf("syscall_socket called\n");
 	socket_fd *soc = (socket_fd*)malloc(sizeof(socket_fd));
 	socket_fd *trav;
 	int fd1 , fd2 = 2 , inserted = 0;
-	for(trav = &socket_head ; trav != &socket_tail ; trav = trav->next )
+	for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next )
 	{
 		fd1 = fd2;
 		fd2 = trav->fd;
@@ -157,33 +156,30 @@ int TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pro
     soc->pid = pid;
     soc->protocol = protocol;
     soc->syscallUUID = syscallUUID;
-
-    return soc->fd;
+	printf("socket completed. return : %d\n\n", soc->fd);
+    returnSystemCall(syscallUUID, soc->fd);
 }
 
-
-
-
-//this->syscall_listen(syscallUUID, pid, param.param1_int, param.param2_int);
-		
-
-int TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
+void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
-	return -1;
-}
-int TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
-{
+	printf("syscall_bind called\n");
 	socket_fd *f = get_socket_by_fd(fd);
 	memcpy(addr, &f->addr, addrlen);
-	return 0;
+	printf("bind completed. return : 0\n");
+	returnSystemCall(syscallUUID, 0);
 }
 
-int TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
+void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
 {
-    return 0;
+	returnSystemCall(syscallUUID, -1);
 }
 
-int TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
+void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
+{
+    returnSystemCall(syscallUUID, 0);
+}
+
+void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 {
     socket_fd* soc = get_socket_by_fd(fd);
     socket_fd* pr = soc->prev;
@@ -191,7 +187,7 @@ int TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
     soc->next->prev = pr;
 
     free(soc);
-    return 1;
+    returnSystemCall(syscallUUID, 0);
 }
 
 ///namespace closing parenthesis
