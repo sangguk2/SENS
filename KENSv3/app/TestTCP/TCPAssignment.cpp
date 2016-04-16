@@ -173,11 +173,11 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			seq_num = htonl(seq_num);
 
 			uint8_t head_len = 5<<4;
-			uint8_t flag = 0x10;	//	ACK
-			uint16_t window_size = htons(WINDOW_SIZE);
-			uint16_t urg_ptr = 0;
+			flag = 0x10;	//	ACK
+			window = htons(WINDOW_SIZE);
+			urg_ptr = 0;
 	
-			writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window_size, &urg_ptr);
+			writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
 
 			trav->status = 4;
 
@@ -192,38 +192,31 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	}
 	else if( SYN ) // 3hand shaking server to client 
 	{
-		
 		sock_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
  		{
- 			if(trav->status == 3 && trav->connect.src_ip == htonl(des_ip) && trav->connect.des_ip == htonl(src_ip) && trav->connect.src_port == htons(des_port) && trav->connect.des_port == htons(src_port) && ack_num == trav->seq + 1)
+ 			if(trav->status == 1 && htonl(des_ip) && htons(des_port))
  				break;
 		}
 		
 		if(trav != &socket_tail)
 		{
-			ack_num = seq_num ++;
-			seq_num++;
-			trav->seq_num =seq_num;
-			des_port = htons(des_port);
-			src_port = htons (src_port);
+			ack_num = seq_num + 1;
+			seq_num = ++(trav->seq);
 			ack_num = htonl(ack_num);
 			seq_num = htonl(seq_num);
-			head_len = (5<<4);
-			flag = 0x10 + 0x2;
-			window_size = htons(window_size);
-			writePacket(&dst_ip, &src_ip, &dst_port, &src_port, &ackNumber, &seqNumber, &head_len,  &flag, &window_size,&zero);
-			trav->status = 2;
-			returnSystemCall(trav->syscallUUID, 0);
-		}
-		else{
 			
-			printf("error at SYN\n ");
-			returnSystemCall(trav->syscallUUID, -1);
-		}
-		
+			des_port = htons(des_port);
+			src_port = htons (src_port);
 
-		
+			uint8_t head_len = 5<<4;
+			flag = 0x12;	//	ACK&SYN
+			window = htons(WINDOW_SIZE);
+
+			writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
+			
+			trav->status = 2;
+		}
 	}
 	else if( ACK && FIN )
 	{
