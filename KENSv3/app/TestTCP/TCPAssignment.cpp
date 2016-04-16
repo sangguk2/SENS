@@ -127,18 +127,18 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pr
 	socket_fd *soc = (socket_fd*)malloc(sizeof(socket_fd));
 	
 	soc->fd = createFileDescriptor(pid);
-    soc->domain = domain;
-    soc->pid = pid;
-    soc->protocol = protocol;
-    soc->syscallUUID = syscallUUID;
+    	soc->domain = domain;
+    	soc->pid = pid;
+    	soc->protocol = protocol;
+    	soc->syscallUUID = syscallUUID;
 	soc->is_passive = false;
-
+	soc->status = 3;
 	soc->prev = socket_tail.prev;
 	soc->next = &socket_tail;
 	soc->prev->next = soc;
 	socket_tail.prev = soc;
 	//printf("socket completed. return : %d\n\n", soc->fd);
-    returnSystemCall(syscallUUID, soc->fd);
+	 returnSystemCall(syscallUUID, soc->fd);
 }
 
 void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
@@ -146,7 +146,7 @@ void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlo
 	socket_fd *f = get_socket_by_fd(fd);
 	f->syn_queue.current_size = 0;
 	f->syn_queue.max_size = backlog;
-	f-> status =1;
+	f-> status = 1;
 	returnSystemCall(syscallUUID, 0);
 
 
@@ -201,13 +201,15 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
 	
 void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
-    returnSystemCall(syscallUUID, 0);
+    
+	
+	returnSystemCall(syscallUUID, 0);
 }
 
 void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 {
-	printf("syscall_close called\n");
-    socket_fd* soc = get_socket_by_fd(fd);
+	//printf("syscall_close called\n");
+	    socket_fd* soc = get_socket_by_fd(fd);
 	if(!soc)
 	{
 		printf("invalid fd\n");
@@ -235,7 +237,7 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
     pr->next = soc->next;
     soc->next->prev = pr;
     free(soc);
-	printf("syscall_close returned 0\n");
+//	printf("syscall_close returned 0\n");
     returnSystemCall(syscallUUID, 0);
 }
 
