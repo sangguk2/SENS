@@ -52,17 +52,17 @@ public:
 	
     struct socket_fd
 	{
-	int status;
         int fd;
         UUID syscallUUID;
         int pid;
         int domain;
         int protocol;
+		struct sockaddr addr;
         socket_fd* prev;
         socket_fd* next;
-
-	bool is_passive;
-        struct sockaddr addr;
+		
+		int status;
+		bool is_passive;
 
 		queue syn_queue;
 		queue established_queue;

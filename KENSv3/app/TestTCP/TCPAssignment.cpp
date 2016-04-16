@@ -102,7 +102,76 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 {
+	uint8_t IHL;
+	packet->readData(14, &IHL, 1);
+	IHL = (IHL&0xF)*4;
+	uint32_t src_ip, des_ip;
+	//uint8_t head_len;
+	//uint16_t window_size = 51200;
+	packet->readData(14+12, &src_ip, 4);
+	packet->readData(14+16, &des_ip, 4);
+	src_ip = ntohl(src_ip);
+	des_ip = ntohl(des_ip);
+
+	uint16_t tot_len;
+	packet->readData(14+2, &tot_len, 2);
+	tot_len = ntohs(tot_len) - 40;
 	
+	uint16_t src_port, des_port;
+	packet->readData(14+IHL, &src_port, 2);
+	packet->readData(14+IHL+2, &des_port, 2);
+	src_port = ntohs(src_port);
+	des_port = ntohs(des_port);
+
+	uint32_t seq_num, ack_num;
+	packet->readData(14+IHL+4, &seq_num, 4);
+	packet->readData(14+IHL+8, &ack_num, 4);
+	seq_num = ntohl(seq_num);
+	ack_num = ntohl(ack_num);
+	
+	uint8_t flag;
+	packet->readData(14+IHL+13, &flag, 1);
+
+	uint16_t window, checksum;
+	packet->readData(14+IHL+14, &window, 2);
+	packet->readData(14+IHL+16, &checksum, 2);
+	window = ntohs(window);
+
+	uint16_t urg_ptr = 0;
+	packet->readData(14+IHL+18, &urg_ptr, 2);
+
+	//bool URG = flag&0x20;
+	bool ACK = flag&0x10;
+	//bool PSH = flag&0x8;
+	bool RST = flag&0x4;
+	bool SYN = flag&0x2;
+	bool FIN = flag&0x1;
+
+	if( SYN && ACK )
+	{
+
+	}
+	else if( SYN )
+	{
+
+	}
+	else if( ACK && FIN )
+	{
+
+	}
+	else if( ACK )
+	{
+
+	}
+	else if( FIN )
+	{
+
+	}
+	else if( RST )
+	{
+
+	}
+
 }
 
 void TCPAssignment::timerCallback(void* payload)
