@@ -231,6 +231,35 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	}
 	else if( ACK )
 	{
+		sock_fd* trav;
+		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
+ 		{
+ 			if(trav->status == 3 && trav->connect.src_ip == htonl(des_ip) && trav->connect.des_ip == htonl(src_ip) && trav->connect.src_port == htons(des_port) && trav->connect.des_port == htons(src_port) && ack_num == trav->seq + 1)
+ 				break;
+		}
+		
+		if(trav != &socket_tail)
+		{
+			uint32_t chk_num = trav->seq;
+			chk_num++;
+			if(chk_num==ack_num){
+				printf("server checked client 3hsk\n");
+				trav_status=4;
+				returnSystemCall(trav->syscallUUID, 0);
+			}
+			else{
+				printf("Not mached in server seq and sending ack\n");
+				returnSystemCall(trav->syscallUUID, -1);
+
+			}
+		}
+		else{
+			
+			printf("error at ACK\n ");
+			returnSystemCall(trav->syscallUUID, -1);
+		}
+		
+
 
 	}
 	else if( FIN )
