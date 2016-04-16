@@ -36,8 +36,8 @@ public:
 	virtual ~TCPAssignment();
 
 	struct queue_node{	
-		uint32_t src_ip, des_ip;
-		uint16_t src_port, des_port;
+		uint32_t src_ip, des_ip;	//	network order
+		uint16_t src_port, des_port;	//	network order
 		
 		queue_node* prev;
 		queue_node* next;
@@ -64,14 +64,16 @@ public:
 		
 		int status;
 		bool is_passive;
-
+		
 		queue syn_queue;
 		queue established_queue;
+
+		queue_node connect;	//	used in client socket
     };
 	
 	struct bound_port
 	{
-		uint16_t port;
+		uint16_t port;	//	host order
 		in_addr_t addr;
 		bound_port* prev;
 		bound_port* next;

@@ -14,6 +14,8 @@
 #include <E/Networking/E_NetworkUtil.hpp>
 #include "TCPAssignment.hpp"
 
+#define WINDOW_SIZE 10000
+
 namespace E
 {
 
@@ -73,8 +75,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
 		//this->syscall_write(syscallUUID, pid, param.param1_int, param.param2_ptr, param.param3_int);
 		break;
 	case CONNECT:
-		//this->syscall_connect(syscallUUID, pid, param.param1_int,
-		//		static_cast<struct sockaddr*>(param.param2_ptr), (socklen_t)param.param3_int);
+		this->syscall_connect(syscallUUID, pid, param.param1_int, static_cast<struct sockaddr*>(param.param2_ptr), (socklen_t)param.param3_int);
 		break;
 	case LISTEN:
 		this->syscall_listen(syscallUUID, pid, param.param1_int, param.param2_int);
@@ -198,12 +199,15 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pr
 	socket_fd *soc = (socket_fd*)malloc(sizeof(socket_fd));
 	
 	soc->fd = createFileDescriptor(pid);
-    	soc->domain = domain;
-    	soc->pid = pid;
-    	soc->protocol = protocol;
-    	soc->syscallUUID = syscallUUID;
+    soc->domain = domain;
+    soc->pid = pid;
+    soc->protocol = protocol;
+    soc->syscallUUID = syscallUUID;
 	soc->is_passive = false;
 	soc->status = 0;
+	soc->connect.prev = NULL;
+	soc->connect.next = NULL;
+
 	soc->prev = socket_tail.prev;
 	soc->next = &socket_tail;
 	soc->prev->next = soc;
@@ -237,10 +241,17 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
 		returnSystemCall(syscallUUID, -1);
 		return;
 	}
+	if(f->status != 0)
+	{
+		printf("connect : wrong socket status\n");
+		returnSystemCall(syscallUUID, -1);
+		return;
+	}
+
 	bound_port* trav;
 	for(trav = port_head.next ; trav != &port_tail ; trav = trav->next)
 	{
-		if( (trav->port == ((sockaddr_in*)addr)->sin_port) &&
+		if( (trav->port == ntohs(((sockaddr_in*)addr)->sin_port)) &&
 				(trav->addr == htonl(INADDR_ANY) ||
 				 ((sockaddr_in*)addr)->sin_addr.s_addr == htonl(INADDR_ANY) || 
 				 trav->addr == ((sockaddr_in*)addr)->sin_addr.s_addr) )
@@ -249,18 +260,21 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
 			returnSystemCall(syscallUUID, -1);
 			return;
 		}
+		if( trav->port > ntohs(((sockaddr_in*)addr)->sin_port) )
+			break;
 	}
 
 	f->is_passive = true;
 	memcpy(&f->addr, addr, addrlen);
 
 	bound_port* p = (bound_port*)malloc(sizeof(bound_port));
-	p->port = ((sockaddr_in*)addr)->sin_port;
+	p->port = ntohs(((sockaddr_in*)addr)->sin_port);
 	p->addr = ((sockaddr_in*)addr)->sin_addr.s_addr;
-	p->prev = port_tail.prev;
-	p->next = &port_tail;
+	p->prev = trav->prev;
+	p->next = trav;
 	p->prev->next = p;
-	port_tail.prev = p;
+	trav->prev = p;
+	
 	//printf("bind completed. return : 0\n");
 	returnSystemCall(syscallUUID, 0);
 }
@@ -284,6 +298,59 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 		returnSystemCall(syscallUUID, -1);
 		return;
 	}
+
+	uint32_t src_ip, des_ip = ((sockaddr_in*)addr)->sin_addr.s_addr;
+	uint16_t src_port, des_port = ((sockaddr_in*)addr)->sin_port;
+
+	if(!getHost()->getIPAddr((uint8_t*)&src_ip, getHost()->getRoutingTable((uint8_t*)&des_ip)))
+	{
+		printf("connect : get src_ip error\n");
+		returnSystemCall(syscallUUID, -1);
+		return;
+	}
+
+	uint16_t min = 1024;
+	bound_port* trav;
+	for(trav = port_head.next ; trav != &port_tail ; trav = trav->next)
+	{
+		if(trav->port == min)
+		{
+			if(min == USHRT_MAX)
+			{
+				printf("connect : ports are full\n");
+				returnSystemCall(syscallUUID, -1);
+				return;
+			}
+			min++;
+		}
+		else if( trav->port > min)
+			break;
+	}
+
+	bound_port* p = (bound_port*)malloc(sizeof(bound_port));
+	p->port = min;
+	p->addr = src_ip;
+	p->prev = trav->prev;
+	p->next = trav;
+	p->prev->next = p;
+	trav->prev = p;
+	
+	src_port = htons(src_port);
+	uint32_t seq_num = 1234 , ack_num = 0;
+	seq_num = htonl(seq_num);
+
+	uint8_t head_len = 5<<4;
+	uint8_t flag = 0x2;
+	uint16_t window_size = htons(WINDOW_SIZE);
+	uint16_t urg_ptr = 0;
+	
+	writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window_size, &urg_ptr);
+
+	f->status = 3;
+	f->connect->src_ip = src_ip;
+	f->connect->des_ip = des_ip;
+	f->connect->src_port = src_port;
+	f->connect->des_port = des_port;
 	
 	returnSystemCall(syscallUUID, 0);
 }
@@ -304,7 +371,7 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 	bound_port* trav;
 	for(trav = port_head.next ; trav != &port_tail ; trav = trav->next)
 	{
-		if(trav->port == ((sockaddr_in*)&soc->addr)->sin_port &&
+		if(trav->port == ntohs(((sockaddr_in*)&soc->addr)->sin_port) &&
 				trav->addr == ((sockaddr_in*)&soc->addr)->sin_addr.s_addr)
 		{
 			bound_port* pr = trav->prev;
@@ -395,13 +462,13 @@ TCPAssignment::queue_node* TCPAssignment::dequeue(queue* q){
 }
 
 
-void TCPAssignment::writePacket(uint32_t *src_ip, uint32_t *dst_ip, uint16_t *src_port, uint16_t *dst_port, uint32_t *seq_num, uint32_t *ack_num, uint8_t *head_len, uint8_t *flag, uint16_t *window_size, uint16_t *urg_ptr, uint8_t *payload = NULL, size_t size = 0)
+void TCPAssignment::writePacket(uint32_t *src_ip, uint32_t *des_ip, uint16_t *src_port, uint16_t *des_port, uint32_t *seq_num, uint32_t *ack_num, uint8_t *head_len, uint8_t *flag, uint16_t *window_size, uint16_t *urg_ptr, uint8_t *payload = NULL, size_t size = 0)
 {
 	Packet* p = this->allocatePacket(54+size);
 	p->writeData(14+12, src_ip, 4);
-	p->writeData(14+16, dst_ip, 4);
+	p->writeData(14+16, des_ip, 4);
 	p->writeData(14+20, src_port,2);
-	p->writeData(14+20+2, dst_port,2);
+	p->writeData(14+20+2, des_port,2);
 	p->writeData(14+20+4, seq_num,4); //sequence number
 	p->writeData(14+20+8, ack_num,4); //ack number
 	p->writeData(14+20+18, urg_ptr,2);
@@ -413,7 +480,7 @@ void TCPAssignment::writePacket(uint32_t *src_ip, uint32_t *dst_ip, uint16_t *sr
 	
 	uint8_t* forsum = (uint8_t*)malloc(20+size);
 	p->readData(14+20, forsum, 20+size);
-	uint16_t csum = ~(NetworkUtil::tcp_sum(*src_ip, *dst_ip, forsum, 20+size));
+	uint16_t csum = ~(NetworkUtil::tcp_sum(*src_ip, *des_ip, forsum, 20+size));
 	csum = htons(csum);
 	p->writeData(14+20+16, &csum, 2);
 	
@@ -421,4 +488,3 @@ void TCPAssignment::writePacket(uint32_t *src_ip, uint32_t *dst_ip, uint16_t *sr
 }
 
 //namespace E closing parenthesis
-}
