@@ -217,12 +217,12 @@ void TCPAssignment::timerCallback(void* payload)
 
 }
 
-TCPAssignment::socket_fd* TCPAssignment::get_socket_by_fd(int fd)
+TCPAssignment::socket_fd* TCPAssignment::get_socket_by_fd(int pid, int fd)
 {
     socket_fd *trav;
 	for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next )
 	{
-        if(trav->fd == fd)
+        if(trav->pid == pid && trav->fd == fd)
             return trav;
     }
     return NULL;
@@ -254,7 +254,7 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pr
 
 void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
 {
-	socket_fd *f = get_socket_by_fd(fd);
+	socket_fd *f = get_socket_by_fd(pid, fd);
 	f->syn_queue.current_size = 0;
 	f->syn_queue.max_size = backlog;
 	f->status = 1;
@@ -264,7 +264,7 @@ void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlo
 void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
 	//printf("syscall_bind called\n");
-	socket_fd *f = get_socket_by_fd(fd);
+	socket_fd *f = get_socket_by_fd(pid, fd);
 	if(!f)
 	{
 		printf("bind : invalid fd\n");
@@ -321,7 +321,7 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
 	
 void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
-    socket_fd *f = get_socket_by_fd(fd);
+    socket_fd *f = get_socket_by_fd(pid, fd);
 	if(!f)
 	{
 		printf("connect : invalid fd\n");
@@ -392,7 +392,7 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 {
 	//printf("syscall_close called\n");
-	    socket_fd* soc = get_socket_by_fd(fd);
+	    socket_fd* soc = get_socket_by_fd(pid, fd);
 	if(!soc)
 	{
 		printf("invalid fd\n");
@@ -426,7 +426,7 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 
 void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t *addrlen)
 {
-	socket_fd* soc = get_socket_by_fd(fd);
+	socket_fd* soc = get_socket_by_fd(pid, fd);
 	if(!soc)
 	{
 		printf("getsockname : invalid fd\n");
