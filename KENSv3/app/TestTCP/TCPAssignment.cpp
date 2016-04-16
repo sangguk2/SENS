@@ -47,6 +47,10 @@ void TCPAssignment::initialize()
 	socket_head.next = &socket_tail;
 	socket_tail.prev = &socket_head;
 	socket_tail.next = NULL;
+	connectiion_head.prev =NULL;
+	connection_head.next = &connection_tail;
+	connection_tail.prev = &connection_head;
+	connection_tail.next = NULL;
 
 	port_head.prev = NULL;
 	port_head.next = &port_tail;
@@ -195,10 +199,16 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		sock_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
  		{
- 			if(trav->status == 1 && htonl(des_ip) && htons(des_port))
+ 			if(trav->status == 1 && trav->connect.src_ip == htonl(des_ip) && trav->connect.des_ip == htonl(src_ip) && trav->connect.src_port == htons(des_port) && trav->connect.des_port == htons(src_port) && ack_num == trav->seq + 1)
  				break;
+			if(trav->status == 1 &&  )
 		}
 		
+		if(trav->status == 2)//syn_receved일 때 packet을 queue에 저장한다.
+		{
+			
+		}
+
 		if(trav != &socket_tail)
 		{
 			ack_num = seq_num + 1;
@@ -281,6 +291,19 @@ TCPAssignment::socket_fd* TCPAssignment::get_socket_by_fd(int pid, int fd)
     }
     return NULL;
 }
+TCPAssignment::connection* TCPAssignment::get_connection_by_addr(int cli_pid )
+{
+	connection* trav;
+	for(trav = connection_head.next ; trav != &connection_tail ; trav = trav->next )
+	{
+		if((trav->client_pid == cli_pid ))
+            		return trav;
+   	 }
+    return NULL;
+
+}
+
+
 
 void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int protocol)
 {
@@ -574,6 +597,8 @@ void TCPAssignment::writePacket(uint32_t *src_ip, uint32_t *des_ip, uint16_t *sr
 	
 	this->sendPacket("IPv4", p);
 }
+
+
 
 //namespace E closing parenthesis
 }

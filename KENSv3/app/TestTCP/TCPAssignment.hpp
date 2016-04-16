@@ -79,6 +79,17 @@ public:
 		bound_port* next;
 	};
 	
+	struct connection{
+		uint32_t client_ip;
+		int client_pid;
+		struct sockaddr_in addr;
+		connection* next;
+		connection* prev;
+		bool is_established;
+
+	};
+
+
 	virtual void enqueue(queue* q, queue_node* enter);
 	virtual queue_node* dequeue(queue* q);
 
