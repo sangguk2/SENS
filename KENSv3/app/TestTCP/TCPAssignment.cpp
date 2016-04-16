@@ -105,9 +105,11 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	uint8_t IHL;
 	packet->readData(14, &IHL, 1);
 	IHL = (IHL&0xF)*4;
-	uint32_t src_ip, des_ip;
+
 	//uint8_t head_len;
 	//uint16_t window_size = 51200;
+	//
+	uint32_t src_ip, des_ip;
 	packet->readData(14+12, &src_ip, 4);
 	packet->readData(14+16, &des_ip, 4);
 	src_ip = ntohl(src_ip);
@@ -149,7 +151,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 
 	if( SYN && ACK )
 	{
-
+		내가 여기다! 이 구역은 내가 맡는다!
 	}
 	else if( SYN )
 	{
@@ -201,7 +203,7 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pr
     	soc->protocol = protocol;
     	soc->syscallUUID = syscallUUID;
 	soc->is_passive = false;
-	soc->status = 3;
+	soc->status = 0;
 	soc->prev = socket_tail.prev;
 	soc->next = &socket_tail;
 	soc->prev->next = soc;
@@ -215,7 +217,7 @@ void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlo
 	socket_fd *f = get_socket_by_fd(fd);
 	f->syn_queue.current_size = 0;
 	f->syn_queue.max_size = backlog;
-	f-> status = 1;
+	f->status = 1;
 	returnSystemCall(syscallUUID, 0);
 }
 
@@ -269,7 +271,19 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
 	
 void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
-    
+    socket_fd *f = get_socket_by_fd(fd);
+	if(!f)
+	{
+		printf("connect : invalid fd\n");
+		returnSystemCall(syscallUUID, -1);
+		return;
+	}
+	if(f->status != 0)
+	{
+		printf("connect : wrong socket status\n");
+		returnSystemCall(syscallUUID, -1);
+		return;
+	}
 	
 	returnSystemCall(syscallUUID, 0);
 }

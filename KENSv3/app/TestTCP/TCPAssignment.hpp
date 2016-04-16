@@ -36,8 +36,9 @@ public:
 	virtual ~TCPAssignment();
 
 	struct queue_node{	
-		int fd;
-		int addr;
+		uint32_t src_ip, des_ip;
+		uint16_t src_port, des_port;
+		
 		queue_node* prev;
 		queue_node* next;
 	};
