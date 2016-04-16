@@ -150,8 +150,8 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	bool RST = flag&0x4;
 	bool SYN = flag&0x2;
 	bool FIN = flag&0x1;
-
-	if( SYN && ACK )
+	
+	if( SYN && ACK ) // 3hand shaking client to server 
 	{
 		socket_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
@@ -188,10 +188,42 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			printf("connect : receiving SYN&ACK - no maching socket\n");
 			returnSystemCall(trav->syscallUUID, -1);
 		}
-	}
-	else if( SYN )
-	{
 
+	}
+	else if( SYN ) // 3hand shaking server to client 
+	{
+		
+		sock_fd* trav;
+		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
+ 		{
+ 			if(trav->status == 3 && trav->connect.src_ip == htonl(des_ip) && trav->connect.des_ip == htonl(src_ip) && trav->connect.src_port == htons(des_port) && trav->connect.des_port == htons(src_port) && ack_num == trav->seq + 1)
+ 				break;
+		}
+		
+		if(trav != &socket_tail)
+		{
+			ack_num = seq_num ++;
+			seq_num++;
+			trav->seq_num =seq_num;
+			des_port = htons(des_port);
+			src_port = htons (src_port);
+			ack_num = htonl(ack_num);
+			seq_num = htonl(seq_num);
+			head_len = (5<<4);
+			flag = 0x10 + 0x2;
+			window_size = htons(window_size);
+			writePacket(&dst_ip, &src_ip, &dst_port, &src_port, &ackNumber, &seqNumber, &head_len,  &flag, &window_size,&zero);
+			trav->status = 2;
+			returnSystemCall(trav->syscallUUID, 0);
+		}
+		else{
+			
+			printf("error at SYN\n ");
+			returnSystemCall(trav->syscallUUID, -1);
+		}
+		
+
+		
 	}
 	else if( ACK && FIN )
 	{
