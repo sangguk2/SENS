@@ -150,8 +150,8 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	bool RST = flag&0x4;
 	bool SYN = flag&0x2;
 	bool FIN = flag&0x1;
-
-	if( SYN && ACK )
+	
+	if( SYN && ACK ) // 3hand shaking client to server 
 	{
 		socket_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
@@ -189,9 +189,10 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			returnSystemCall(trav->syscallUUID, -1);
 		}
 	}
-	else if( SYN )
+	else if( SYN ) // 3hand shaking server to client 
 	{
-
+		
+		
 	}
 	else if( ACK && FIN )
 	{
