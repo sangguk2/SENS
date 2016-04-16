@@ -191,6 +191,17 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	}
 	else if( SYN ) // 3hand shaking server to client 
 	{
+		connection c = getConnectionBySrcDst(dst_ip, dst_port, src_ip,src_port);
+		ackNumber = c.seqNumber++;
+		seqNumber++;
+		dst_port = htons(dst_port);
+		src_port = htons (src_port);
+		ackNumber = htonl(ackNumber);
+		seqNumber = htonl(seqNumber);
+		head_len = (5<<4);
+		flag = 0x10 + 0x2;
+		window_size = htons(window_size);
+		writePacket(&dst_ip, &src_ip, &dst_port, &src_port, &ackNumber, &seqNumber, &head_len,  &flag, &window_size,&zero);		
 		
 		
 	}
