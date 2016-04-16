@@ -69,6 +69,7 @@ public:
 		queue established_queue;
 
 		queue_node connect;	//	used in client socket
+		uint32_t seq;	//	host order
     };
 	
 	struct bound_port

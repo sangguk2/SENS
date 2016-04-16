@@ -13,6 +13,7 @@
 #include <E/Networking/E_Packet.hpp>
 #include <E/Networking/E_NetworkUtil.hpp>
 #include "TCPAssignment.hpp"
+#include <limits.h>
 
 #define WINDOW_SIZE 10000
 
@@ -152,7 +153,41 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 
 	if( SYN && ACK )
 	{
-		내가 여기다! 이 구역은 내가 맡는다!
+		socket_fd* trav;
+		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
+		{
+			if(trav->status == 3 && trav->connect.src_ip == htonl(des_ip) && trav->connect.des_ip == htonl(src_ip) && trav->connect.src_port == htons(des_port) && trav->connect.des_port == htons(src_port) && ack_num == trav->seq + 1)
+				break;
+		}
+		
+		if(trav != &socket_tail)	//	if	maching socket exists
+		{
+			src_ip = htonl(src_ip);
+			des_ip = htonl(des_ip);
+			src_port = htons(src_port);
+			des_port = htons(des_port);
+
+			ack_num = seq_num + 1;
+			ack_num = htonl(ack_num);
+			seq_num = ++(trav->seq);
+			seq_num = htonl(seq_num);
+
+			uint8_t head_len = 5<<4;
+			uint8_t flag = 0x10;	//	ACK
+			uint16_t window_size = htons(WINDOW_SIZE);
+			uint16_t urg_ptr = 0;
+	
+			writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window_size, &urg_ptr);
+
+			trav->status = 4;
+
+			returnSystemCall(trav->syscallUUID, 0);
+		}
+		else
+		{
+			printf("connect : receiving SYN&ACK - no maching socket\n");
+			returnSystemCall(trav->syscallUUID, -1);
+		}
 	}
 	else if( SYN )
 	{
@@ -207,6 +242,7 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pr
 	soc->status = 0;
 	soc->connect.prev = NULL;
 	soc->connect.next = NULL;
+	soc->seq = 1234;
 
 	soc->prev = socket_tail.prev;
 	soc->next = &socket_tail;
@@ -336,7 +372,7 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 	trav->prev = p;
 	
 	src_port = htons(src_port);
-	uint32_t seq_num = 1234 , ack_num = 0;
+	uint32_t seq_num = ++(f->seq) , ack_num = 0;
 	seq_num = htonl(seq_num);
 
 	uint8_t head_len = 5<<4;
@@ -347,12 +383,10 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 	writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window_size, &urg_ptr);
 
 	f->status = 3;
-	f->connect->src_ip = src_ip;
-	f->connect->des_ip = des_ip;
-	f->connect->src_port = src_port;
-	f->connect->des_port = des_port;
-	
-	returnSystemCall(syscallUUID, 0);
+	f->connect.src_ip = src_ip;
+	f->connect.des_ip = des_ip;
+	f->connect.src_port = src_port;
+	f->connect.des_port = des_port;
 }
 
 void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
@@ -462,7 +496,7 @@ TCPAssignment::queue_node* TCPAssignment::dequeue(queue* q){
 }
 
 
-void TCPAssignment::writePacket(uint32_t *src_ip, uint32_t *des_ip, uint16_t *src_port, uint16_t *des_port, uint32_t *seq_num, uint32_t *ack_num, uint8_t *head_len, uint8_t *flag, uint16_t *window_size, uint16_t *urg_ptr, uint8_t *payload = NULL, size_t size = 0)
+void TCPAssignment::writePacket(uint32_t *src_ip, uint32_t *des_ip, uint16_t *src_port, uint16_t *des_port, uint32_t *seq_num, uint32_t *ack_num, uint8_t *head_len, uint8_t *flag, uint16_t *window_size, uint16_t *urg_ptr, uint8_t *payload, size_t size)
 {
 	Packet* p = this->allocatePacket(54+size);
 	p->writeData(14+12, src_ip, 4);
@@ -488,3 +522,4 @@ void TCPAssignment::writePacket(uint32_t *src_ip, uint32_t *des_ip, uint16_t *sr
 }
 
 //namespace E closing parenthesis
+}
