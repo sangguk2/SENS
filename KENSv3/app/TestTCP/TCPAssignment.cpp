@@ -218,6 +218,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			seq_num = ++(trav->seq);
 			uint8_t head_len = 5<<4;
 			window = htons(WINDOW_SIZE);
+			urg_prt = 0;
 			if(trav->status == 3)//simulatenous open
 			{
 				trav->status = 2;
@@ -253,11 +254,60 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	//else if( ACK && FIN )
 	else if( FIN )
 	{
+		int context = 0;
 		sock_fd* trav;
 		for(trav = sock_head.next ; trav != &sock_tail ; trav = trav->next)
 		{
 			queue_node* c = &trav->connect;
-			if(c->src_ip 
+			if(c->src_ip == htonl(des_ip) && c->des_ip == htonl(src_ip)
+					&& c->src_port == htons(des_port) && c->des_port == htons(src_port))
+			{
+				context = 1;
+				break;
+			}
+		}
+
+		if(context == 1)
+		{
+			src_ip = htonl(src_ip);
+			des_ip = htonl(des_ip);
+			src_port = htons(src_port);
+			des_port = htons(des_port);
+			
+			ack_num = seq_num + 1;
+			ack_num = htonl(ack_num);
+			seq_num = ++(trav->seq);
+			seq_num = htonl(seq_num);
+			
+			flag = 0x10;
+			uint8_t head_len = 5<<4;
+			window = htons(WINDOW_SIZE);
+			urg_ptr = 0;
+
+			if(trav->status == 4)	//	ESTABLISHED
+			{
+				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
+				trav->status = 5;
+			}
+			else if(trav->status == 7)	//	FIN_WAIT_1
+			{
+				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
+				trav->status = 8;
+			}
+			else if(trav->status == 9)	//	FIN_WAIT_2
+			{
+				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
+				//trav->status = 10;
+				UUID id = trav->syscallUUID;
+				free_socket(trav);
+				returnSystemCall(id, 0);
+			}
+			else
+			{
+				printf("FIN : status else case (%d)", trav->status);
+				return;
+			}
+
 		}
 	}
 	else if( ACK )
