@@ -671,6 +671,32 @@ void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, socka
 	returnSystemCall(syscallUUID, 0);
 }
 
+
+void TCPAssignment::syscall_getpeername(UUID syscallUUID, int pid, int sockfd, sockaddr *addr, socklen_t *addrlen)
+{
+
+    queue_node* q = get_socket(pid,sockfd)->connect; 
+    if(q->des_ip==0 && q->dst_port==0)
+    {
+        returnSystemCall(syscallUUID, -1);
+        return;
+    }
+    if(sizeof(sockaddr_in)>*addrlen) {
+        returnSystemCall(syscallUUID, -1);
+        return;
+    }
+
+    ((sockaddr_in*)addr)->sin_addr.s_addr = htonl((in_addr_t)(q->des_ip));
+    ((sockaddr_in*)addr)->sin_family=AF_INET;
+    ((sockaddr_in*)addr)->sin_port = htons(q->des_port);
+    returnSystemCall(syscallUUID, 0);
+
+}
+
+
+
+
+
 void TCPAssignment::enqueue(queue* q, queue_node* enter){
 	if(q->current_size >= q->max_size){
 		printf("queue_size is already full\n");
