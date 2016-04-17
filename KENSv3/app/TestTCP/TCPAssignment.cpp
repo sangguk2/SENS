@@ -85,9 +85,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
         this->syscall_listen(syscallUUID, pid, param.param1_int, param.param2_int);
         break;
     case ACCEPT:
-        //this->syscall_accept(syscallUUID, pid, param.param1_int,
-        //      static_cast<struct sockaddr*>(param.param2_ptr),
-        //      static_cast<socklen_t*>(param.param3_ptr));
+        this->syscall_accept(syscallUUID, pid, param.param1_int, static_cast<struct sockaddr*>(param.param2_ptr), static_cast<socklen_t*>(param.param3_ptr));
         break;
     case BIND:
         this->syscall_bind(syscallUUID, pid, param.param1_int, static_cast<struct sockaddr *>(param.param2_ptr), (socklen_t) param.param3_int);
@@ -217,6 +215,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			seq_num = ++(trav->seq);
 			uint8_t head_len = 5<<4;
 			window = htons(WINDOW_SIZE);
+			urg_prt = 0;
 			if(trav->status == 3)//simulatenous open
 			{
 				trav->status = 2;
@@ -251,15 +250,62 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	//else if( ACK && FIN )
 	else if( FIN )
 	{
+		int context = 0;
 		sock_fd* trav;
 		for(trav = sock_head.next ; trav != &sock_tail ; trav = trav->next)
 		{
 			queue_node* c = &trav->connect;
-			if(c->src_ip 
+			if(c->src_ip == htonl(des_ip) && c->des_ip == htonl(src_ip)
+					&& c->src_port == htons(des_port) && c->des_port == htons(src_port))
+			{
+				context = 1;
+				break;
+			}
+		}
+
+		if(context == 1)
+		{
+			src_ip = htonl(src_ip);
+			des_ip = htonl(des_ip);
+			src_port = htons(src_port);
+			des_port = htons(des_port);
+			
+			ack_num = seq_num + 1;
+			ack_num = htonl(ack_num);
+			seq_num = ++(trav->seq);
+			seq_num = htonl(seq_num);
+			
+			flag = 0x10;
+			uint8_t head_len = 5<<4;
+			window = htons(WINDOW_SIZE);
+			urg_ptr = 0;
+
+			if(trav->status == 4)	//	ESTABLISHED
+			{
+				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
+				trav->status = 5;
+			}
+			else if(trav->status == 7)	//	FIN_WAIT_1
+			{
+				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
+				trav->status = 8;
+			}
+			else if(trav->status == 9)	//	FIN_WAIT_2
+			{
+				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
+				//trav->status = 10;
+				UUID id = trav->syscallUUID;
+				free_socket(trav);
+				returnSystemCall(id, 0);
+			}
+			else
+			{
+				printf("FIN : status else case (%d)", trav->status);
+				return;
+			}
+
 		}
 	}
-
-
 
 	else if( ACK )
 	{
@@ -331,19 +377,21 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 				c->next = &connection_tail;
 				c->prev->next = c;
 				connection_tail.prev = c;
-
-
-				//returnSystemCall(trav->syscallUUID, 0);
 			}
-			else{
+			else
 				printf("Recieved Ack_num != Sent Seq_num + 1\n");
-				//returnSystemCall(trav->syscallUUID, -1);
-			}
+			return;
 		}
-		else
+		
+		//Not 3-way handshaking from here
+		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
 		{
-			printf("error at ACK\n ");
-			//returnSystemCall(trav->syscallUUID, -1);
+			ans = t->socket;
+			if(ans->connect.src_ip == htonl(des_ip)
+				&& ans->connect.src_port == htons(des_port)
+				&& ans->connect.des_ip == htonl(src_ip)
+				&& ans->connect.des_port == htons(src_port))
+			
 		}
 	}
 	/*else if( FIN )
@@ -449,20 +497,13 @@ void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlo
 
 void TCPAssignment::syscall_accept(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t *addrlen)
 {
-    
-    queue_node * q =  (queue_node*)malloc(sizeof(queue_node));
-    socket_fd* cli_fd = get_socket(pid,fd);
-    socket_fd* con_fd;
-    q = dequeue(&f->established_queue);
-    if(q != NULL)
-    {
-        con_fd = q->socket_fd;
-        returnSysstemCall(syscallUUID,con_fd->fd);
-    }
-    else{
-        return;
-    }
-    
+	queue_node* q = NULL;
+	while(!q)
+		q = dequeue(&get_socket(pid, fd)->established_queue);
+	socket_fd* soc = q->socket;
+	
+	memcpy(addr, &soc->addr, *addrlen);
+    returnSystemCall(syscallUUID, soc->fd);
 }
 
     
@@ -727,7 +768,7 @@ TCPAssignment::queue_node* TCPAssignment::dequeue(queue* q){
 	queue_node* ret = q->head.next;
 	if(ret == &q->tail)
 	{
-		printf("dequeue : empty queue\n");
+		//printf("dequeue : empty queue\n");
 		return NULL;
 	}
 	q->head.next = ret->next;
