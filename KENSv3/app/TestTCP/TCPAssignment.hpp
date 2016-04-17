@@ -38,6 +38,8 @@ public:
 	struct queue_node{	
 		uint32_t src_ip, des_ip;	//	network order
 		uint16_t src_port, des_port;	//	network order
+ 		Packet* packet;
+		connection* e_connection;
 		socket_fd* socket;
 		queue_node* prev;
 		queue_node* next;
@@ -50,7 +52,9 @@ public:
 		queue_node head;
 		queue_node tail;
 	};
-	
+
+        
+
     struct socket_fd
 	{
         int fd;
