@@ -39,7 +39,8 @@ public:
 		uint32_t src_ip, des_ip;	//	network order
 		uint16_t src_port, des_port;	//	network order
  		Packet* packet;
-		queue_node* prev;
+		connection* e_connection;
+        queue_node* prev;
 		queue_node* next;
 	};
 
@@ -50,7 +51,9 @@ public:
 		queue_node* head;
 		queue_node* tail;
 	};
-	
+
+        
+
     struct socket_fd
 	{
         int fd;
@@ -58,17 +61,17 @@ public:
         int pid;
         int domain;
         int protocol;
-	uint16_t port;	
-	uint32_t ip;
-	struct sockaddr addr;
+	    uint16_t port;	
+    	uint32_t ip;
+	    struct sockaddr addr;
         socket_fd* prev;
         socket_fd* next;
-	int status;
-	bool is_passive;
-	queue syn_queue;
-	queue established_queue;
-	queue_node connect;	//	used in client socket
-	uint32_t seq;	//	host order
+    	int status;
+	    bool is_passive;
+    	queue syn_queue;
+	    queue established_queue;
+	    queue_node connect;	//	used in client socket
+    	uint32_t seq;	//	host order
     };
 	
 	struct bound_port
