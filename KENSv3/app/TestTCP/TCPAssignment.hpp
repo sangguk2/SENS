@@ -40,7 +40,8 @@ public:
 		uint16_t src_port, des_port;	//	network order
  		Packet* packet;
 		connection* e_connection;
-        queue_node* prev;
+		socket_fd* socket;
+		queue_node* prev;
 		queue_node* next;
 	};
 
@@ -48,8 +49,8 @@ public:
 	{
 		int max_size;
 		int current_size;
-		queue_node* head;
-		queue_node* tail;
+		queue_node head;
+		queue_node tail;
 	};
 
         
@@ -61,17 +62,16 @@ public:
         int pid;
         int domain;
         int protocol;
-	    uint16_t port;	
-    	uint32_t ip;
-	    struct sockaddr addr;
+		struct sockaddr addr;	//	network order
         socket_fd* prev;
         socket_fd* next;
-    	int status;
-	    bool is_passive;
-    	queue syn_queue;
-	    queue established_queue;
-	    queue_node connect;	//	used in client socket
-    	uint32_t seq;	//	host order
+
+		int status;
+		bool is_passive;
+		queue syn_queue;
+		queue established_queue;
+		queue_node connect;	//	used in client socket
+		uint32_t seq;	//	host order
     };
 	
 	struct bound_port
@@ -99,7 +99,7 @@ public:
 	virtual void enqueue(queue* q, queue_node* enter);
 	virtual queue_node* dequeue(queue* q);
 
-    virtual socket_fd* get_socket_by_fd(int fd);
+    virtual socket_fd* get_socket(int pid, int fd);
     virtual void syscall_socket(UUID syscallUUID, int pid, int domain, int protocol);
     virtual void syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen);
     virtual void syscall_listen(UUID syscallUUID, int pid, int fd, int backlog);
@@ -107,6 +107,8 @@ public:
     virtual void syscall_close(UUID syscallUUID, int pid, int fd);
 	virtual void syscall_getsockname(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t *addrlen);
 	virtual void writePacket(uint32_t *src_ip, uint32_t *dst_ip, uint16_t *src_port, uint16_t *dst_port, uint32_t *seq_num, uint32_t *ack_num, uint8_t *head_len, uint8_t *flag, uint16_t *window_size, uint16_t *urg_ptr, uint8_t *payload = NULL, size_t size = 0);
+	virtual socket_fd* create_socket(UUID syscallUUID, int pid, int domain, int protocol);
+	virtual int free_socket(int pid, int fd);
 
 protected:
 	virtual void systemCallback(UUID syscallUUID, int pid, const SystemCallParameter& param) final;
