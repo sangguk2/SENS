@@ -271,7 +271,7 @@ void TCPAssignment::timerCallback(void* payload)
 
 }
 
-TCPAssignment::socket_fd* TCPAssignment::get_socket_by_fd(int pid, int fd)
+TCPAssignment::socket_fd* TCPAssignment::get_socket(int pid, int fd)
 {
     socket_fd *trav;
 	for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next )
@@ -282,9 +282,8 @@ TCPAssignment::socket_fd* TCPAssignment::get_socket_by_fd(int pid, int fd)
     return NULL;
 }
 
-void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int protocol)
+TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid, int domain, int protocol)
 {
-	//printf("syscall_socket called\n");
 	socket_fd *soc = (socket_fd*)malloc(sizeof(socket_fd));
 	
 	soc->fd = createFileDescriptor(pid);
@@ -302,13 +301,19 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pr
 	soc->next = &socket_tail;
 	soc->prev->next = soc;
 	socket_tail.prev = soc;
-	//printf("socket completed. return : %d\n\n", soc->fd);
-	 returnSystemCall(syscallUUID, soc->fd);
+
+	return soc;
+}
+
+void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int protocol)
+{
+	socket_fd* soc = create_socket(syscallUUID, pid, domain, protocol);
+	returnSystemCall(syscallUUID, soc->fd);
 }
 
 void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
 {
-	socket_fd *f = get_socket_by_fd(pid, fd);
+	socket_fd *f = get_socket(pid, fd);
 	f->syn_queue.current_size = 0;
 	f->syn_queue.max_size = backlog;
 	f->status = 1;
@@ -318,7 +323,7 @@ void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlo
 void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
 	//printf("syscall_bind called\n");
-	socket_fd *f = get_socket_by_fd(pid, fd);
+	socket_fd *f = get_socket(pid, fd);
 	if(!f)
 	{
 		printf("bind : invalid fd\n");
@@ -375,7 +380,7 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
 	
 void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
-    socket_fd *f = get_socket_by_fd(pid, fd);
+    socket_fd *f = get_socket(pid, fd);
 	if(!f)
 	{
 		printf("connect : invalid fd\n");
@@ -431,10 +436,10 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 
 	uint8_t head_len = 5<<4;
 	uint8_t flag = 0x2;
-	uint16_t window_size = htons(WINDOW_SIZE);
+	uint16_t window = htons(WINDOW_SIZE);
 	uint16_t urg_ptr = 0;
 	
-	writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window_size, &urg_ptr);
+	writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
 
 	f->status = 3;
 	f->connect.src_ip = src_ip;
@@ -445,42 +450,53 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 
 void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 {
-	//printf("syscall_close called\n");
-	    socket_fd* soc = get_socket_by_fd(pid, fd);
-	if(!soc)
+	socket_fd* soc = get_socket(pid, fd);
+	int S = soc->status;
+	switch(S)
 	{
-		printf("invalid fd\n");
-		returnSystemCall(syscallUUID, -1);
-		return;
-	}
-
-	removeFileDescriptor(pid, fd);
-
-	bound_port* trav;
-	for(trav = port_head.next ; trav != &port_tail ; trav = trav->next)
-	{
-		if(trav->port == ntohs(((sockaddr_in*)&soc->addr)->sin_port) &&
-				trav->addr == ((sockaddr_in*)&soc->addr)->sin_addr.s_addr)
-		{
-			bound_port* pr = trav->prev;
-			pr->next = trav->next;
-			pr->next->prev = pr;
-			free(trav);
+		case 0:	//	CLOSED
+			free_socket(pid, fd);
+			returnSystemCall(syscallUUID, 0);
+			return;
+		case 1:	//	LISTEN
+			free_socket(pid, fd);
+			returnSystemCall(syscallUUID, 0);
+			return;
+		case 2:	//	SYN_RCVD
+			soc->status = 7;	//	FIN_WAIT_1
 			break;
-		}
+		case 3:	//	SYN_SENT
+			soc->status = 0;
+			return;
+		case 4:	//	ESTABLISHED
+			soc->status = 7;	//	FIN_WAIT_1
+			
+			uint32_t src_ip = soc->connect.src_ip, des_ip = soc->connect.des_ip;
+			uint16_t src_port = soc->connect.src_port, des_port = soc->connect.des_port;
+			
+			uint32_t seq_num = ++(soc->seq), ack_num = 0;
+			seq_num = htonl(seq_num);
+
+			uint8_t head_len = 5<<4 , flag = 0x1;	//	FIN
+			uint16_t window = htons(WINDOW_SIZE), urg_ptr = 0;
+
+			writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
+
+			break;
+		case 5:	//	CLOSE_WAIT
+			soc->status = 6;	//	LAST_ACK
+			break;
+		default:
+			returnSystemCall(syscallUUID, -1);
+			return;
 	}
 
-    socket_fd* pr = soc->prev;
-    pr->next = soc->next;
-    soc->next->prev = pr;
-    free(soc);
-//	printf("syscall_close returned 0\n");
     returnSystemCall(syscallUUID, 0);
 }
 
 void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t *addrlen)
 {
-	socket_fd* soc = get_socket_by_fd(pid, fd);
+	socket_fd* soc = get_socket(pid, fd);
 	if(!soc)
 	{
 		printf("getsockname : invalid fd\n");
@@ -574,6 +590,40 @@ void TCPAssignment::writePacket(uint32_t *src_ip, uint32_t *des_ip, uint16_t *sr
 	
 	this->sendPacket("IPv4", p);
 }
+
+int TCPAssignment::free_socket(int pid, int fd)
+{
+	socket_fd* soc = get_socket(pid, fd);
+	if(!soc)
+	{
+		printf("free_socket : no matching socket\n");
+		return -1;
+	}
+
+	removeFileDescriptor(pid, fd);
+
+	bound_port* trav;
+	for(trav = port_head.next ; trav != &port_tail ; trav = trav->next)
+	{
+		if(trav->port == ntohs(((sockaddr_in*)&soc->addr)->sin_port) &&
+				trav->addr == ((sockaddr_in*)&soc->addr)->sin_addr.s_addr)
+		{
+			bound_port* pr = trav->prev;
+			pr->next = trav->next;
+			pr->next->prev = pr;
+			free(trav);
+			break;
+		}
+	}
+
+    socket_fd* pr = soc->prev;
+    pr->next = soc->next;
+    soc->next->prev = pr;
+    free(soc);
+
+	return 0;
+}
+
 
 //namespace E closing parenthesis
 }
