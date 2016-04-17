@@ -151,7 +151,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	//bool URG = flag&0x20;
 	bool ACK = flag&0x10;
 	//bool PSH = flag&0x8;
-	bool RST = flag&0x4;
+	//bool RST = flag&0x4;
 	bool SYN = flag&0x2;
 	bool FIN = flag&0x1;
 	
@@ -162,9 +162,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		{
 			if(trav->status == 3 && trav->connect.src_ip == htonl(des_ip) && trav->connect.des_ip == htonl(src_ip) && trav->connect.src_port == htons(des_port) && trav->connect.des_port == htons(src_port) && ack_num == trav->seq + 1)
 				break;
-			if(){
-				break;
-			}
 		}
 		
 		if(trav != &socket_tail)	//	if	maching socket exists
@@ -188,7 +185,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		}
 		else
 		{
-			printf("connect : receiving SYN&ACK - no maching socket\n");
+			printf("connect : receiving SYN&ACK - no matching socket\n");
 			returnSystemCall(trav->syscallUUID, -1);
 		}
 
@@ -200,9 +197,11 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		uint16_t cur_port;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
  		{
-			cur_ip = ( (sockaddr_in*)addr)->sin_addr.s_addr;
-			cur_port = ((sockaddr_in*)addr)->sin_port;
-			if(cur_ip==des_ip && cur_port ==des_port){
+			if(trav->status != 3 && trav->status != 1)
+				continue;
+			cur_ip = ((sockaddr_in*)&trav->addr)->sin_addr.s_addr;
+			cur_port = ((sockaddr_in*)&trav->addr)->sin_port;
+			if(cur_ip == htonl(des_ip) && cur_port == htons(des_port)){
 				break;
 			}	
 		}
@@ -210,110 +209,147 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		
 		if(trav != &socket_tail)
 		{
+			src_ip = htonl(src_ip);
+			des_ip = htonl(des_ip);
+			src_port = htons(src_port);
+			des_port = htons(des_port);
+			ack_num = seq_num + 1;
+			ack_num = htonl(ack_num);
+			seq_num = ++(trav->seq);
+			uint8_t head_len = 5<<4;
+			window = htons(WINDOW_SIZE);
 			if(trav->status == 3)//simulatenous open
 			{
 				trav->status = 2;
-				flag = 0x10;
-				ack_num = seq_num+1;
-				seq_num = ++(trav_seq);
-				ack_num = htonl(ack_num);
+				flag = 0x12;
 				seq_num = htonl(seq_num);
-				des_port = htons(des_port);
-				src_port = htons(src_port);
-				uint8_t head_len = 5<<4;
-				window = htons(WINDOW_SIZE);
 				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
-				return;
 			}
-			
-			socket_fd* con_soc = create_socket(soc-> syscallUUID, soc->pid, soc-> domain, soc-> protocol);
-			ack_num = seq_num + 1;
-			seq_num = ++(trav->seq);
-			con_soc-> seq = seq_num;
-			ack_num = htonl(ack_num);
-			seq_num = htonl(seq_num);
-			des_port = htons(des_port);
-			src_port = htons (src_port);
-			uint8_t head_len = 5<<4;
-			flag = 0x12;	//	ACK&SYN
-			window = htons(WINDOW_SIZE);
-			writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
-			con_soc->status = 2;
-			//syn packet을 queue에 추가.	
-			queue_node syn_node;
-			syn_node->packet = packet;
-			enqueue(trav->syn_queue, syn_node);
-			return;
+			else if(trav->status == 1)	//	listening socket
+			{
+				socket_fd* con_soc = create_socket(soc->syscallUUID, soc->pid, soc-> domain, soc-> protocol);
+				con_soc->seq = seq_num;
+				seq_num = htonl(seq_num);
+				flag = 0x12;	//	ACK&SYN
+				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
+				con_soc->status = 2;
+				//syn packet을 queue에 추가.	
+				queue_node* syn_node = (queue_node*)malloc(sizeof(queue_node));
+				syn_node->socket = con_soc;
+				syn_node->src_ip = des_ip;
+				syn_node->des_ip = src_ip;
+				syn_node->src_port = des_port;
+				syn_node->des_port = src_port;
+
+				con_soc->connect->src_ip = des_ip;
+				con_soc->connect->des_ip = src_ip;
+				con_soc->connect->src_port = des_port;
+				con_soc->connect->des_port = src_port;
+
+				enqueue(&trav->syn_queue, syn_node);
+			}
 		}
 	}
-	else if( ACK && FIN )
+	//else if( ACK && FIN )
+	else if( FIN )
 	{
-
+		sock_fd* trav;
+		for(trav = sock_head.next ; trav != &sock_tail ; trav = trav->next)
+		{
+			queue_node* c = &trav->connect;
+			if(c->src_ip 
+		}
 	}
 	else if( ACK )
 	{
+		sock_fd* listen_soc;
 		sock_fd* trav;
+		queue* synq;
+		queue_node* mov;
 		uint32_t cur_ip; 
 		uint16_t cur_port;
+		int context = 0;	//	1 for Establishing , 2 for Closing
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
  		{
-			cur_ip = ( (sockaddr_in*)addr)->sin_addr.s_addr;
-			cur_port = ((sockaddr_in*)addr)->sin_port;
-			if(trav->status==2 &&cur_ip==des_ip && cur_port ==des_port){
-				break;
-			}	
-
-
+			if(trav->status == 1
+					&& ((sockaddr_in*)(trav->addr))->sin_addr.s_addr == htonl(des_ip)
+					&& ((sockaddr_in*)(trav->addr))->sin_port == htons(des_port))
+			{
+				synq = &trav->syn_queue;
+				queue_node *t;
+				sock_fd* ans;
+				bool finished = false;
+				for( t = synq->head.next ; t != &synq->tail ; t = t->next)
+				{
+					ans = t->socket;
+					if(ans->connect.src_ip == htonl(des_ip)
+							&& ans->connect.src_port == htons(des_port)
+							&& ans->connect.des_ip == htonl(src_ip)
+							&& ans->connect.des_port == htons(src_port))
+					{
+						if(ans->status != 2)
+						{
+							printf("There is a socket in syn queue whose state is not 2\n");
+							return;
+						}
+						listen_soc = trav;
+						mov = t;
+						finished = true;
+						context = 1;
+						break;
+					}
+				}
+				if(finished)
+				{
+					trav = ans;
+					break;
+				}
+			}
 		}
 		
-		if(trav != &socket_tail)
+		if(context == 1)	//	Establishing
 		{
-			uint32_t chk_num = trav->seq;
-			chk_num++;
-			if(chk_num==ack_num){
+			if(trav->seq + 1 == ack_num){
 				printf("server checked client 3hsk\n");
-				trav_status=4;
+				trav->status = 4;
+				
+				queue_node* pr = mov->prev;
+				pr->next = mov->next;
+				pr->next->prev = pr;
+				(synq->current_size)--;
+				enqueue(&listen_soc->established_queue, mov);
 				
 				connection *c = (connection*)malloc(sizeof(connection));
-				c-> src_ip =src_ip;
-				c-> src_port =src_port;
-				c->des_ip =des_ip;
+				c->src_ip = src_ip;
+				c->src_port = src_port;
+				c->des_ip = des_ip;
 				c->des_port = des_port;
 				c->is_establiished = true;
 				c->prev = connection_tail.prev;
 				c->next = &connection_tail;
 				c->prev->next = c;
 				connection_tail.prev = c;
-
-				returnSystemCall(trav->syscallUUID, 0);
+				//returnSystemCall(trav->syscallUUID, 0);
 			}
 			else{
-				printf("Not mached in server seq and sending ack\n");
-				returnSystemCall(trav->syscallUUID, -1);
-
+				printf("Recieved Ack_num != Sent Seq_num + 1\n");
+				//returnSystemCall(trav->syscallUUID, -1);
 			}
 		}
 		else
 		{
-			
 			printf("error at ACK\n ");
-			returnSystemCall(trav->syscallUUID, -1);
+			//returnSystemCall(trav->syscallUUID, -1);
 		}
-		
-		connection* c =
-		
-
-
 	}
-	else if( FIN )
+	/*else if( FIN )
 	{
-
+		
 	}
 	else if( RST )
 	{
 
-	}
-
+	}*/
 }
 
 void TCPAssignment::timerCallback(void* payload)
@@ -331,17 +367,17 @@ TCPAssignment::socket_fd* TCPAssignment::get_socket(int pid, int fd)
     }
     return NULL;
 }
-TCPAssignment::connection* TCPAssignment::get_connection_by_addr(int cli_pid )
+
+/*TCPAssignment::connection* TCPAssignment::get_connection_by_addr(int cli_pid )
 {
 	connection* trav;
 	for(trav = connection_head.next ; trav != &connection_tail ; trav = trav->next )
 	{
 		if((trav->client_pid == cli_pid ))
-            		return trav;
+        	return trav;
    	 }
     return NULL;
-
-}
+}*/
 
 
 
@@ -355,9 +391,25 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
     	soc->syscallUUID = syscallUUID;
 	soc->is_passive = false;
 	soc->status = 0;
+
+	soc->connect.src_ip = 0;
+	soc->connect.des_ip = 0;
+	soc->connect.src_port = 0;
+	soc->connect.des_port = 0;
 	soc->connect.prev = NULL;
 	soc->connect.next = NULL;
+	
 	soc->seq = 1234;
+
+	soc->syn_queue.head.prev = NULL;
+	soc->syn_queue.head.next = &soc->syn_queue.tail;
+	soc->syn_queue.tail.prev = &soc->syn_queue.head;
+	soc->syn_queue.tail.next = NULL;
+
+	soc->established_queue.head.prev = NULL;
+	soc->established_queue.head.next = &soc->established_queue.tail;
+	soc->established_queue.tail.prev = &soc->established_queue.head;
+	soc->established_queue.tail.next = NULL;
 
 	soc->prev = socket_tail.prev;
 	soc->next = &socket_tail;
@@ -584,60 +636,31 @@ void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, socka
 }
 
 void TCPAssignment::enqueue(queue* q, queue_node* enter){
-	queue_node* trav = q->tail;
-	int max = q->max_size;
-	int size =  q->current_size;
-	if(max<=size){
+	if(q->current_size >= q->max_size){
 		printf("queue_size is already full\n");
 		return;
 	}
-	if(trav == NULL)
-	{
-		q->head = enter;
-		q->tail = enter;
-		if(size != 0){printf("queue_size is crazy0\n");};
-		q->current_size = 1;
-	}
-	else if(trav->prev == NULL )
-	{
-		if(size != 1)
-			printf("queue_size is crazy1\n");
-		q->head = trav;
-		q->tail = enter;
-		trav->next = q->tail;
-		q->tail->prev = trav;
-		q->current_size = 2;
-	}
-	else{
-		q->tail =enter;
-		trav->next = q->tail;
-		q->tail->prev = trav;		
-		q->current_size = size++;
-	}
+	
+	enter->prev = q->tail.prev;
+	enter->next = &q->tail;
+	enter->prev->next = enter;
+	q->tail.prev = enter;
+
+	(q->current_size)++;
 }
 
 TCPAssignment::queue_node* TCPAssignment::dequeue(queue* q){
-	queue_node* trav = q->head;
-	int size = q->current_size;
-	if(trav == NULL){
+	queue_node* ret = q->head.next;
+	if(ret == &q->tail)
+	{
+		printf("dequeue : empty queue\n");
 		return NULL;
 	}
-	else if(trav->next ==NULL)
-	{
-
-		q->tail =NULL;
-		q->head =NULL;
-		q->current_size = size--;
-		return trav;
-
-	}
-	else{
-		q-> head = trav->next;
-		trav->next->prev = NULL;
-		q->current_size = size++;
-		return trav;
-
-	}
+	q->head.next = ret->next;
+	ret->next->prev = &q->head;
+	ret->prev = NULL;
+	ret->next = NULL;
+	return ret;
 }
 
 

@@ -38,7 +38,7 @@ public:
 	struct queue_node{	
 		uint32_t src_ip, des_ip;	//	network order
 		uint16_t src_port, des_port;	//	network order
- 		Packet* packet;
+		socket_fd* socket;
 		queue_node* prev;
 		queue_node* next;
 	};
@@ -47,8 +47,8 @@ public:
 	{
 		int max_size;
 		int current_size;
-		queue_node* head;
-		queue_node* tail;
+		queue_node head;
+		queue_node tail;
 	};
 	
     struct socket_fd
@@ -58,7 +58,7 @@ public:
         int pid;
         int domain;
         int protocol;
-		struct sockaddr addr;
+		struct sockaddr addr;	//	network order
         socket_fd* prev;
         socket_fd* next;
 
