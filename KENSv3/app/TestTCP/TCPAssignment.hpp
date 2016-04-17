@@ -38,6 +38,7 @@ public:
 	struct queue_node{	
 		uint32_t src_ip, des_ip;	//	network order
 		uint16_t src_port, des_port;	//	network order
+ 		Packet* packet;
 		queue_node* prev;
 		queue_node* next;
 	};
@@ -60,13 +61,11 @@ public:
 		struct sockaddr addr;
         socket_fd* prev;
         socket_fd* next;
-		
+
 		int status;
 		bool is_passive;
-		
 		queue syn_queue;
 		queue established_queue;
-
 		queue_node connect;	//	used in client socket
 		uint32_t seq;	//	host order
     };
@@ -79,6 +78,20 @@ public:
 		bound_port* next;
 	};
 	
+	struct connection{
+		uint32_t src_ip;
+		uint16_t src_port;
+		uint32_t des_ip;
+		uint16_t des_port;	
+		int client_pid;
+		struct sockaddr_in addr;
+		connection* next;
+		connection* prev;
+		bool is_established;
+
+	};
+
+
 	virtual void enqueue(queue* q, queue_node* enter);
 	virtual queue_node* dequeue(queue* q);
 
