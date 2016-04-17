@@ -645,7 +645,19 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 			break;
 		case 5:	//	CLOSE_WAIT
 			soc->status = 6;	//	LAST_ACK
-			break;
+	        uint32_t src_ip = soc->connect.src_ip, des_ip = soc->connect.des_ip;
+			uint16_t src_port = soc->connect.src_port, des_port = soc->connect.des_port;
+			
+			uint32_t seq_num = ++(soc->seq), ack_num = 0;
+			seq_num = htonl(seq_num);
+
+			uint8_t head_len = 5<<4 , flag = 0x1;	//	FIN
+			uint16_t window = htons(WINDOW_SIZE), urg_ptr = 0;
+
+			writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
+		
+
+            break;
 		default:
 			returnSystemCall(syscallUUID, -1);
 			return;
