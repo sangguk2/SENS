@@ -40,6 +40,10 @@ public:
 	struct queue_node{	
 		uint32_t src_ip, des_ip;	//	network order
 		uint16_t src_port, des_port;	//	network order
+
+		UUID syscallUUID;
+		sockaddr *addr;
+		socklen_t *addrlen;
  		
 		struct E::TCPAssignment::socket_fd* socket;
 		queue_node* prev;
@@ -71,6 +75,7 @@ public:
 		bool is_passive;
 		queue syn_queue;
 		queue established_queue;
+		queue accept_queue;
 		queue_node connect;	//	used in client socket
 		uint32_t seq;	//	host order
     };
@@ -98,6 +103,7 @@ public:
 	virtual void writePacket(uint32_t *src_ip, uint32_t *dst_ip, uint16_t *src_port, uint16_t *dst_port, uint32_t *seq_num, uint32_t *ack_num, uint8_t *head_len, uint8_t *flag, uint16_t *window_size, uint16_t *urg_ptr, uint8_t *payload = NULL, size_t size = 0);
 	virtual socket_fd* create_socket(UUID syscallUUID, int pid, int domain, int protocol);
 	virtual int free_socket(int pid, int fd);
+	virtual void manage_accept_queue(socket_fd* soc);
 
 protected:
 	virtual void systemCallback(UUID syscallUUID, int pid, const SystemCallParameter& param) final;

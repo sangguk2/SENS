@@ -55,11 +55,7 @@ void TCPAssignment::initialize()
 
 void TCPAssignment::finalize()
 {
-	socket_fd* trav;
-	int n = 0;
-	for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
-		n++;
-	printf("finalize() completed with %d sockets\n", n);
+
 }
 
 void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallParameter& param)
@@ -105,7 +101,6 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 {
-	printf("packet arrived!\n");
 	uint8_t IHL;
 	packet->readData(14, &IHL, 1);
 	IHL = (IHL&0xF)*4;
@@ -153,11 +148,13 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	bool SYN = flag&0x2;
 	bool FIN = flag&0x1;
 
-	printf("recieved ack_num : %d , recieved seq_num : %d\n", ack_num, seq_num);
+	//printf("recieved ack_num : %d , recieved seq_num : %d\n", ack_num, seq_num);
+    //printf("src_ip %d, src_port %d\n", src_ip, src_port);
+    //printf("des_ip %d, des_port %d\n", des_ip, des_port);
 	
 	if( SYN && ACK ) // 3hand shaking client to server 
 	{
-		printf("recieved SYN&ACK\n");
+		//printf("recieved SYN&ACK\n");
 		socket_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
 		{
@@ -167,13 +164,16 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		
 		if(trav != &socket_tail)	//	if	maching socket exists
 		{
+            if(ack_num != trav->seq + 1)
+                return;
 			src_ip = htonl(src_ip);
 			des_ip = htonl(des_ip);
 			src_port = htons(src_port);
 			des_port = htons(des_port);
-			ack_num = seq_num + 1;
+			ack_num = seq_num+1;
 			ack_num = htonl(ack_num);
-			seq_num = ++(trav->seq);
+			//seq_num++;
+            seq_num = ++(trav->seq);
 			seq_num = htonl(seq_num);
 			uint8_t head_len = 5<<4;
 			flag = 0x10;	//	ACK
@@ -186,13 +186,13 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		}
 		else
 		{
-			printf("connect : receiving SYN&ACK - no matching socket\n");
+			//printf("connect : receiving SYN&ACK - no matching socket\n");
 			returnSystemCall(trav->syscallUUID, -1);
 		}
 	}
 	else if( SYN ) // 3hand shaking server to client 
 	{
-		printf("recieved SYN\n");
+		//printf("recieved SYN\n");
 		socket_fd* trav;
 		uint32_t cur_ip; 
 		uint16_t cur_port;
@@ -218,45 +218,51 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		if(trav != &socket_tail)
 		{
 			//printf("SYN : found socket\n");
-
-			if(trav->syn_queue.current_size >= trav->syn_queue.max_size){
-				//printf("SYN : syn_size is already full\n");
-				return;
-			}
 			src_ip = htonl(src_ip);
 			des_ip = htonl(des_ip);
 			src_port = htons(src_port);
 			des_port = htons(des_port);
-			ack_num++;
-			//ack_num = trav->seq + 2;
-			//ack_num = seq_num + 1;
-			printf("sent ack_num : %d, ", ack_num);
-			ack_num = htonl(ack_num);
-			seq_num++;
-			//seq_num = ++(trav->seq);
-			printf("seq_num : %d\n", seq_num);
+			
 			uint8_t head_len = 5<<4;
 			window = htons(WINDOW_SIZE);
 			uint16_t urg_ptr = 0;
 			if(trav->status == 3)//simulatenous open
-			{
-				printf("simultaneous open entered\n");
+			{   
+                //printf("SYN : simultaneous open\n");
+                ack_num++;
+                //ack_num = ++(trav->seq);
+			    //printf("sent ack_num : %d, ", ack_num);
+			    ack_num = htonl(ack_num);
+			    seq_num++;
+                //printf("seq_num : %d\n", seq_num);
+
 				trav->status = 2;
-				flag = 0x12;
+				flag = 0x10;
 				seq_num = htonl(seq_num);
 				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
 			}
 			else if(trav->status == 1)	//	listening socket
 			{
+                if(trav->syn_queue.current_size >= trav->syn_queue.max_size){
+				    //printf("SYN : syn_size is already full\n");
+				    return;
+			    }
+
+                ack_num++;
+			    //printf("sent ack_num : %d, ", ack_num);
+			    ack_num = htonl(ack_num);
+			    seq_num++;
+
 				socket_fd* con_soc = create_socket(trav->syscallUUID, trav->pid, trav->domain, trav->protocol);
 				con_soc->addr = trav->addr;
 				con_soc->seq = seq_num;
+
 				seq_num = htonl(seq_num);
 				flag = 0x12;	//	ACK&SYN
 				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
 				con_soc->status = 2;
 				//syn packet을 queue에 추가.	
-				printf("queue_node malloc\n");
+				//printf("queue_node malloc\n");
 				queue_node* syn_node = (queue_node*)malloc(sizeof(queue_node));
 				syn_node->socket = con_soc;
 				syn_node->src_ip = des_ip;
@@ -269,14 +275,16 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 				con_soc->connect.des_port = src_port;
 				
 				enqueue(&trav->syn_queue, syn_node);
-				printf("reacting SYN completed\n");
+				//printf("reacting SYN completed\n");
 			}
 		}
+        else
+            printf("SYN : no matching socket\n");
 	}
 	//else if( ACK && FIN )
 	else if( FIN )
 	{
-		printf("recieved FIN\n");
+		//printf("recieved FIN\n");
 		int context = 0;
 		socket_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
@@ -312,13 +320,13 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 
 			if(trav->status == 4)	//	ESTABLISHED
 			{
-				printf("stop establishing\n");
+				//printf("stop establishing\n");
 				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
 				trav->status = 5;
 			}
 			else if(trav->status == 7)	//	FIN_WAIT_1
 			{
-				printf("stop fin-wait-1\n");
+				//printf("stop fin-wait-1\n");
 				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
 				trav->status = 8;
 			}
@@ -332,7 +340,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			}
 			else
 			{
-				printf("FIN : status else case (%d)", trav->status);
+				//printf("FIN : status else case (%d)", trav->status);
 				return;
 			}
 
@@ -341,7 +349,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 
 	else if( ACK )
 	{
-		printf("recieved ACK\n");
+		//printf("recieved ACK\n");
 		socket_fd* listen_soc;
 		socket_fd* trav;
 		queue* synq;
@@ -390,7 +398,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			//printf("recieved ack_num = %d , sent seq_num = %d\n", ack_num, trav->seq);
 			if(1){
 			//if(trav->seq + 1 == ack_num){
-				printf("ACK : start establishing\n");
+				//printf("ACK : start establishing\n");
 				trav->status = 4;
 				
 				queue_node* pr = mov->prev;
@@ -399,13 +407,35 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 				(synq->current_size)--;
                 
 				enqueue(&listen_soc->established_queue, mov);
+                manage_accept_queue(listen_soc);
 			}
 			else
 				printf("Recieved Ack_num != Sent Seq_num + 1\n");
 			return;
 		}
-		printf("not 3-way handshaking!\n");
+
+        //printf("finding simultaneous opening socket\n");
+        //check if there is simultaneous opening socket
+        for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
+		{
+			if((trav->connect.src_ip == 0 || trav->connect.src_ip == htonl(des_ip))
+				&& trav->connect.src_port == htons(des_port)
+				&& trav->connect.des_ip == htonl(src_ip)
+				&& trav->connect.des_port == htons(src_port)
+                && trav->status == 2){
+                break;
+            }
+			
+		}
+        if(trav != &socket_tail)
+        {
+            //printf("ACK : start simultaneous establishing\n");
+            //printf("ACK UUID is %lu\n", trav->syscallUUID);
+            returnSystemCall(trav->syscallUUID, 0);
+		    trav->status = 4;
+        }
 		
+		//printf("not 3-way handshaking!\n");
 		//Not 3-way handshaking from here
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
 		{
@@ -418,7 +448,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			
 		}
         if(trav == &socket_tail){
-            printf("There is no socket for closing\n");
+            //printf("There is no socket for closing\n");
              return;
         }
 		if(trav->status == 6)	//	LAST_ACK
@@ -426,7 +456,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			UUID id = trav->syscallUUID;
 			free_socket(trav->pid, trav->fd);
 			returnSystemCall(id, 0);
-			printf("server socket closed completely\n");
+			//printf("server socket closed completely\n");
 		}
 		else if(trav->status == 7)	//	FIN_WAIT_1
 		{
@@ -472,7 +502,7 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
    	soc->domain = domain;
    	soc->pid = pid;
    	soc->protocol = protocol;
-    	soc->syscallUUID = syscallUUID;
+    soc->syscallUUID = syscallUUID;
 	soc->is_passive = false;
 	soc->status = 0;
 
@@ -495,6 +525,11 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
 	soc->established_queue.tail.prev = &soc->established_queue.head;
 	soc->established_queue.tail.next = NULL;
 
+    soc->accept_queue.head.prev = NULL;
+	soc->accept_queue.head.next = &soc->accept_queue.tail;
+	soc->accept_queue.tail.prev = &soc->accept_queue.head;
+	soc->accept_queue.tail.next = NULL;
+
 	soc->prev = socket_tail.prev;
 	soc->next = &socket_tail;
 	soc->prev->next = soc;
@@ -515,29 +550,41 @@ void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlo
 	f->syn_queue.current_size = 0;
 	f->syn_queue.max_size = backlog;
 	f->status = 1;
-	printf("syscall_listen completed\n");
 	returnSystemCall(syscallUUID, 0);
+}
+
+void TCPAssignment::manage_accept_queue(socket_fd* soc)
+{
+    queue* eq = &soc->established_queue;
+    queue* aq = &soc->accept_queue;
+
+    if(eq->head.next == &eq->tail || aq->head.next == &aq->tail)
+        return;
+
+    queue_node* q = dequeue(eq);
+    queue_node* acc_info = dequeue(aq);
+	socket_fd* s = q->socket;
+	free(q);
+
+	*(acc_info->addrlen) = sizeof(sockaddr_in);
+	memcpy(acc_info->addr, &s->addr, *(acc_info->addrlen));
+	//printf("family was %d , INET is %d\n", ((sockaddr_in*)addr)->sin_family, AF_INET);
+    returnSystemCall(acc_info->syscallUUID, s->fd);
+    free(acc_info);
 }
 
 void TCPAssignment::syscall_accept(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t *addrlen)
 {
-	//printf("syscall_accept called\n");
-	queue_node* q = NULL;
-	
-	//while(!q){
-		q = dequeue(&get_socket(pid, fd)->established_queue);
-	//}
-	if(!q)
-	{
-		returnSystemCall(syscallUUID, -1);
-		return;
-	}
-	socket_fd* soc = q->socket;
-	free(q);
-	*addrlen = sizeof(sockaddr_in);
-	memcpy(addr, &soc->addr, *addrlen);
-	//printf("family was %d , INET is %d\n", ((sockaddr_in*)addr)->sin_family, AF_INET);
-    returnSystemCall(syscallUUID, soc->fd);
+    socket_fd* soc = get_socket(pid, fd);
+
+    queue_node* newq = (queue_node*)malloc(sizeof(queue_node));
+    newq->syscallUUID = syscallUUID;
+    newq->addr = addr;
+    newq->addrlen = addrlen;
+
+    enqueue(&soc->accept_queue, newq);
+
+    manage_accept_queue(soc);
 }
 
     
@@ -583,10 +630,7 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
 
     f->is_passive = true;
     memcpy(&f->addr, addr, addrlen);
-	printf("binded address : %d\n", ntohl(((sockaddr_in*)addr)->sin_addr.s_addr));
-	printf("binded port : %d\n", ntohs(((sockaddr_in*)addr)->sin_port));
 
-	printf("bound port malloc\n");
     bound_port* p = (bound_port*)malloc(sizeof(bound_port));
     p->port = ntohs(((sockaddr_in*)addr)->sin_port);
     p->addr = ((sockaddr_in*)addr)->sin_addr.s_addr;
@@ -599,21 +643,17 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
     returnSystemCall(syscallUUID, 0);
 }
 
-
-
-    
-    
 void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
-	printf("syscall_connect called\n");
  	socket_fd *f = get_socket(pid, fd);
+
 	if(!f)
 	{
 		printf("connect : invalid fd\n");
 		returnSystemCall(syscallUUID, -1);
 		return;
 	}
-	if(f->status != 0)
+	if(f->status != 0 && f->status != 1)
 	{
 		printf("connect : wrong socket status\n");
 		returnSystemCall(syscallUUID, -1);
@@ -622,39 +662,52 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 	uint32_t src_ip, des_ip = ((sockaddr_in*)addr)->sin_addr.s_addr;
 	uint16_t src_port, des_port = ((sockaddr_in*)addr)->sin_port;
 
-	if(!getHost()->getIPAddr((uint8_t*)&src_ip, getHost()->getRoutingTable((uint8_t*)&des_ip)))
-	{
-		printf("connect : get src_ip error\n");
-		returnSystemCall(syscallUUID, -1);
-		return;
-	}
-	uint16_t min = 1024;
-	bound_port* trav;
-	for(trav = port_head.next ; trav != &port_tail ; trav = trav->next)
-	{
-		if(trav->port == min)
-		{
-			if(min == USHRT_MAX)
-			{
-				printf("connect : ports are full\n");
-				returnSystemCall(syscallUUID, -1);
-				return;
-			}
-			min++;
-		}
-		else if( trav->port > min)
-			break;
-	}
-	bound_port* p = (bound_port*)malloc(sizeof(bound_port));
-	p->port = min;
-	p->addr = src_ip;
-	p->prev = trav->prev;
-	p->next = trav;
-	p->prev->next = p;
-	trav->prev = p;
+    if(f->is_passive)
+    {
+        src_ip = ((sockaddr_in*)&f->addr)->sin_addr.s_addr;
+        src_port = ((sockaddr_in*)&f->addr)->sin_port;
+    }
+    else
+    {
+	    if(!getHost()->getIPAddr((uint8_t*)&src_ip, getHost()->getRoutingTable((uint8_t*)&des_ip)))
+	    {
+		    printf("connect : get src_ip error\n");
+		    returnSystemCall(syscallUUID, -1);
+		    return;
+	    }
+	    uint16_t min = 1024;
+	    bound_port* trav;
+	    for(trav = port_head.next ; trav != &port_tail ; trav = trav->next)
+	    {
+		    if(trav->port == min)
+		    {
+			    if(min == USHRT_MAX)
+			    {
+				    printf("connect : ports are full\n");
+				    returnSystemCall(syscallUUID, -1);
+				    return;
+			    }
+			    min++;
+		    }
+		    else if( trav->port > min)
+			    break;
+	    }
+
+	    bound_port* p = (bound_port*)malloc(sizeof(bound_port));
+	    p->port = min;
+	    p->addr = src_ip;
+	    p->prev = trav->prev;
+	    p->next = trav;
+	    p->prev->next = p;
+	    trav->prev = p;
+
+        src_port = htons(src_port);
+    }
+
+    f->syscallUUID = syscallUUID;
 	
-	src_port = htons(src_port);
 	uint32_t seq_num = ++(f->seq) , ack_num = 0;
+    //printf("connect : sent seq_num : %d, ack_num : 0\n", seq_num);
 	seq_num = htonl(seq_num);
 
 	uint8_t head_len = 5<<4;
@@ -669,7 +722,6 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 	f->connect.des_ip = des_ip;
 	f->connect.src_port = src_port;
 	f->connect.des_port = des_port;
-	printf("syscall_connect completed\n");
 }
 
 void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
@@ -709,7 +761,6 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 			break;
 		case 5:	//	CLOSE_WAIT
 			soc->status = 6;	//	LAST_ACK
-			printf("server called close at CLOSE_WAIT\n");
 			{
 				uint32_t src_ip = soc->connect.src_ip, des_ip = soc->connect.des_ip;
 				uint16_t src_port = soc->connect.src_port, des_port = soc->connect.des_port;
@@ -760,9 +811,9 @@ void TCPAssignment::syscall_getpeername(UUID syscallUUID, int pid, int sockfd, s
         returnSystemCall(syscallUUID, -1);
         return;
     }*/
-    ((sockaddr_in*)addr)->sin_addr.s_addr = htonl(/*(in_addr_t)*/(q->des_ip));
+    ((sockaddr_in*)addr)->sin_addr.s_addr = q->des_ip;
     ((sockaddr_in*)addr)->sin_family=AF_INET;
-    ((sockaddr_in*)addr)->sin_port = htons(q->des_port);
+    ((sockaddr_in*)addr)->sin_port = q->des_port;
     returnSystemCall(syscallUUID, 0);
 }
 
@@ -843,9 +894,7 @@ int TCPAssignment::free_socket(int pid, int fd)
 			bound_port* pr = trav->prev;
 			pr->next = trav->next;
 			pr->next->prev = pr;
-			printf("free bound_port ");
 			free(trav);
-			printf("completed\n");
 			break;
 		}
 	}
