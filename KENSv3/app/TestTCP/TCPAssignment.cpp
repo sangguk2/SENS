@@ -730,23 +730,20 @@ void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, socka
 
 void TCPAssignment::syscall_getpeername(UUID syscallUUID, int pid, int sockfd, sockaddr *addr, socklen_t *addrlen)
 {
-
     queue_node* q = &get_socket(pid,sockfd)->connect; 
-    if(q->des_ip==0 && q->des_port==0)
+    if(!q->des_ip && !q->des_port)
     {
         returnSystemCall(syscallUUID, -1);
         return;
     }
-    if(sizeof(sockaddr_in)>*addrlen) {
+    /*if(sizeof(sockaddr_in) > *addrlen) {
         returnSystemCall(syscallUUID, -1);
         return;
-    }
-
-    ((sockaddr_in*)addr)->sin_addr.s_addr = htonl((in_addr_t)(q->des_ip));
+    }*/
+    ((sockaddr_in*)addr)->sin_addr.s_addr = htonl(/*(in_addr_t)*/(q->des_ip));
     ((sockaddr_in*)addr)->sin_family=AF_INET;
     ((sockaddr_in*)addr)->sin_port = htons(q->des_port);
     returnSystemCall(syscallUUID, 0);
-
 }
 
 
@@ -758,7 +755,6 @@ void TCPAssignment::enqueue(queue* q, queue_node* enter){
 		printf("queue_size is already full\n");
 		return;
 	}*/
-	
 	enter->prev = q->tail.prev;
 	enter->next = &q->tail;
 	enter->prev->next = enter;
@@ -792,10 +788,10 @@ void TCPAssignment::writePacket(uint32_t *src_ip, uint32_t *des_ip, uint16_t *sr
     p->writeData(14+20+2, des_port,2);
     p->writeData(14+20+4, seq_num,4); //sequence number
     p->writeData(14+20+8, ack_num,4); //ack number
-    p->writeData(14+20+18, urg_ptr,2);
-    p->writeData(14+20+13, flag, 1);
     p->writeData(14+20+12, head_len, 1);
+	p->writeData(14+20+13, flag, 1);
     p->writeData(14+20+14, window_size, 2);
+    p->writeData(14+20+18, urg_ptr,2);
     if(payload)
         p->writeData(14+20+20, payload, size);
     printf("forsum malloc\n");
