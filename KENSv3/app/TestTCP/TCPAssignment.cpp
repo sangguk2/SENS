@@ -386,13 +386,33 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		//Not 3-way handshaking from here
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
 		{
-			ans = t->socket;
-			if(ans->connect.src_ip == htonl(des_ip)
-				&& ans->connect.src_port == htons(des_port)
-				&& ans->connect.des_ip == htonl(src_ip)
-				&& ans->connect.des_port == htons(src_port))
+			if(trav->connect.src_ip == htonl(des_ip)
+				&& trav->connect.src_port == htons(des_port)
+				&& trav->connect.des_ip == htonl(src_ip)
+				&& trav->connect.des_port == htons(src_port)){
+                break;
+            }
 			
 		}
+        if(trav == &socket_tail){
+            printf("there is not socket \n");
+            return;
+        }
+        if((trav->seq+1)==ack_num){
+            if(trav->status==7){
+                trav->status=9;
+                return;
+            }
+            else if(trav->status ==6 ){
+                trav->status=0;
+                return;
+            }
+
+        }
+        else{
+            printf("not matched ackNumber \n");
+            return;
+        }
 	}
 	/*else if( FIN )
 	{
@@ -406,6 +426,9 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 
 void TCPAssignment::timerCallback(void* payload)
 {
+    Time t = this->getHost()->getSystem()->getCurrentTime();
+    addTimer(payload, t);
+    
 
 }
 
