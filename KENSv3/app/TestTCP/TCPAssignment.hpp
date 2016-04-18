@@ -40,6 +40,7 @@ public:
 	struct queue_node{	
 		uint32_t src_ip, des_ip;	//	network order
 		uint16_t src_port, des_port;	//	network order
+ 		
 		struct E::TCPAssignment::socket_fd* socket;
 		queue_node* prev;
 		queue_node* next;
