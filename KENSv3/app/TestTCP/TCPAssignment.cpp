@@ -144,7 +144,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	//bool URG = flag&0x20;
 	bool ACK = flag&0x10;
 	//bool PSH = flag&0x8;
-	//bool RST = flag&0x4;
+	bool RST = flag&0x4;
 	bool SYN = flag&0x2;
 	bool FIN = flag&0x1;
 
@@ -187,7 +187,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	}
 	else if( SYN ) // 3hand shaking server to client 
 	{
-		//printf("recieved SYN\n");
+		printf("recieved SYN\n");
 		socket_fd* trav;
 		uint32_t cur_ip; 
 		uint16_t cur_port;
@@ -222,10 +222,13 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			des_ip = htonl(des_ip);
 			src_port = htons(src_port);
 			des_port = htons(des_port);
-			ack_num = seq_num + 1;
+			ack_num++;
+			//ack_num = trav->seq + 2;
+			//ack_num = seq_num + 1;
 			printf("sent ack_num : %d, ", ack_num);
 			ack_num = htonl(ack_num);
-			seq_num = ++(trav->seq);
+			seq_num++;
+			//seq_num = ++(trav->seq);
 			printf("seq_num : %d\n", seq_num);
 			uint8_t head_len = 5<<4;
 			window = htons(WINDOW_SIZE);
@@ -249,6 +252,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
 				con_soc->status = 2;
 				//syn packet을 queue에 추가.	
+				printf("queue_node malloc\n");
 				queue_node* syn_node = (queue_node*)malloc(sizeof(queue_node));
 				syn_node->socket = con_soc;
 				syn_node->src_ip = des_ip;
@@ -268,6 +272,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	//else if( ACK && FIN )
 	else if( FIN )
 	{
+		printf("recieved FIN\n");
 		int context = 0;
 		socket_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
@@ -283,14 +288,18 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 
 		if(context == 1)
 		{
+			printf("here\n");
 			src_ip = htonl(src_ip);
 			des_ip = htonl(des_ip);
 			src_port = htons(src_port);
 			des_port = htons(des_port);
 			
-			ack_num = seq_num + 1;
+			
+			ack_num++;
+			//ack_num = seq_num + 1;
 			ack_num = htonl(ack_num);
-			seq_num = ++(trav->seq);
+			seq_num++;
+			//seq_num = ++(trav->seq);
 			seq_num = htonl(seq_num);
 			
 			flag = 0x10;
@@ -300,11 +309,13 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 
 			if(trav->status == 4)	//	ESTABLISHED
 			{
+				printf("stop establishing\n");
 				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
 				trav->status = 5;
 			}
 			else if(trav->status == 7)	//	FIN_WAIT_1
 			{
+				printf("stop fin-wait-1\n");
 				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
 				trav->status = 8;
 			}
@@ -408,11 +419,11 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	/*else if( FIN )
 	{
 		
-	}
+	}*/
 	else if( RST )
 	{
-
-	}*/
+		printf("recieved RST\n");
+	}
 }
 
 void TCPAssignment::timerCallback(void* payload)
@@ -433,6 +444,7 @@ TCPAssignment::socket_fd* TCPAssignment::get_socket(int pid, int fd)
 
 TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid, int domain, int protocol)
 {
+	printf("socket malloc\n");
 	socket_fd *soc = (socket_fd*)malloc(sizeof(socket_fd));
 	soc->fd = createFileDescriptor(pid);
    	soc->domain = domain;
@@ -552,6 +564,7 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
 	printf("binded address : %d\n", ntohl(((sockaddr_in*)addr)->sin_addr.s_addr));
 	printf("binded port : %d\n", ntohs(((sockaddr_in*)addr)->sin_port));
 
+	printf("bound port malloc\n");
     bound_port* p = (bound_port*)malloc(sizeof(bound_port));
     p->port = ntohs(((sockaddr_in*)addr)->sin_port);
     p->addr = ((sockaddr_in*)addr)->sin_addr.s_addr;
@@ -677,6 +690,18 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 			break;
 		case 5:	//	CLOSE_WAIT
 			soc->status = 6;	//	LAST_ACK
+			{
+				uint32_t src_ip = soc->connect.src_ip, des_ip = soc->connect.des_ip;
+				uint16_t src_port = soc->connect.src_port, des_port = soc->connect.des_port;
+			
+				uint32_t seq_num = ++(soc->seq), ack_num = 0;
+				seq_num = htonl(seq_num);
+
+				uint8_t head_len = 5<<4 , flag = 0x1;	//	FIN
+				uint16_t window = htons(WINDOW_SIZE), urg_ptr = 0;
+
+				writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
+			}
 			break;
 		default:
 			returnSystemCall(syscallUUID, -1);
@@ -759,6 +784,7 @@ TCPAssignment::queue_node* TCPAssignment::dequeue(queue* q){
 
 void TCPAssignment::writePacket(uint32_t *src_ip, uint32_t *des_ip, uint16_t *src_port, uint16_t *des_port, uint32_t *seq_num, uint32_t *ack_num, uint8_t *head_len, uint8_t *flag, uint16_t *window_size, uint16_t *urg_ptr, uint8_t *payload, size_t size)
 {
+	printf("start writing packet\n");
     Packet* p = this->allocatePacket(54+size);
     p->writeData(14+12, src_ip, 4);
     p->writeData(14+16, des_ip, 4);
@@ -772,14 +798,16 @@ void TCPAssignment::writePacket(uint32_t *src_ip, uint32_t *des_ip, uint16_t *sr
     p->writeData(14+20+14, window_size, 2);
     if(payload)
         p->writeData(14+20+20, payload, size);
-    
+    printf("forsum malloc\n");
     uint8_t* forsum = (uint8_t*)malloc(20+size);
     p->readData(14+20, forsum, 20+size);
     uint16_t csum = ~(NetworkUtil::tcp_sum(*src_ip, *des_ip, forsum, 20+size));
+	free(forsum);
     csum = htons(csum);
     p->writeData(14+20+16, &csum, 2);
     
     this->sendPacket("IPv4", p);
+	printf("finished writing packet\n");
 }
 
 int TCPAssignment::free_socket(int pid, int fd)
