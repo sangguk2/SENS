@@ -34,14 +34,14 @@ public:
 	virtual void initialize();
 	virtual void finalize();
 	virtual ~TCPAssignment();
+	
+	struct socket_fd;
 
 	struct queue_node{	
 		uint32_t src_ip, des_ip;	//	network order
 		uint16_t src_port, des_port;	//	network order
  		
-        Packet* packet;
-		connection* e_connection;
-		socket_fd* socket;
+		struct E::TCPAssignment::socket_fd* socket;
 		queue_node* prev;
 		queue_node* next;
 	};
@@ -82,20 +82,6 @@ public:
 		bound_port* prev;
 		bound_port* next;
 	};
-	
-	struct connection{
-		uint32_t src_ip;
-		uint16_t src_port;
-		uint32_t des_ip;
-		uint16_t des_port;	
-		int client_pid;
-		struct sockaddr_in addr;
-		connection* next;
-		connection* prev;
-		bool is_established;
-
-	};
-
 
 	virtual void enqueue(queue* q, queue_node* enter);
 	virtual queue_node* dequeue(queue* q);
@@ -105,8 +91,10 @@ public:
     virtual void syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen);
     virtual void syscall_listen(UUID syscallUUID, int pid, int fd, int backlog);
     virtual void syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen);
-    virtual void syscall_close(UUID syscallUUID, int pid, int fd);
+    virtual void syscall_accept(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t *addrlen);
+	virtual void syscall_close(UUID syscallUUID, int pid, int fd);
 	virtual void syscall_getsockname(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t *addrlen);
+	virtual void syscall_getpeername(UUID syscallUUID, int pid, int sockfd, sockaddr *addr, socklen_t *addrlen);
 	virtual void writePacket(uint32_t *src_ip, uint32_t *dst_ip, uint16_t *src_port, uint16_t *dst_port, uint32_t *seq_num, uint32_t *ack_num, uint8_t *head_len, uint8_t *flag, uint16_t *window_size, uint16_t *urg_ptr, uint8_t *payload = NULL, size_t size = 0);
 	virtual socket_fd* create_socket(UUID syscallUUID, int pid, int domain, int protocol);
 	virtual int free_socket(int pid, int fd);
