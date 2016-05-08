@@ -555,6 +555,7 @@ void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlo
 
 void TCPAssignment::manage_accept_queue(socket_fd* soc)
 {
+<<<<<<< HEAD
     queue* eq = &soc->established_queue;
     queue* aq = &soc->accept_queue;
 
@@ -564,6 +565,29 @@ void TCPAssignment::manage_accept_queue(socket_fd* soc)
     queue_node* q = dequeue(eq);
     queue_node* acc_info = dequeue(aq);
 	socket_fd* s = q->socket;
+=======
+    socket_fd* soc = get_socket(pid, fd);
+
+    queue_node* newq = (queue_node*)malloc(sizeof(queue_node));
+    newq->syscallUUID = syscallUUID;
+    newq->addr = addr;
+    newq->addrlen = addrlen;
+
+    enqueue(&soc->accept_queue, newq);
+
+
+	queue_node* q = NULL;
+
+	//while(!q){
+		q = dequeue(&get_socket(pid, fd)->established_queue);
+	//}
+	if(!q)
+	{
+		returnSystemCall(syscallUUID, -1);
+		return;
+	}
+	socket_fd* soc = q->socket;
+>>>>>>> a
 	free(q);
 
 	*(acc_info->addrlen) = sizeof(sockaddr_in);
@@ -662,6 +686,7 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 	uint32_t src_ip, des_ip = ((sockaddr_in*)addr)->sin_addr.s_addr;
 	uint16_t src_port, des_port = ((sockaddr_in*)addr)->sin_port;
 
+<<<<<<< HEAD
     if(f->is_passive)
     {
         src_ip = ((sockaddr_in*)&f->addr)->sin_addr.s_addr;
@@ -705,9 +730,42 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
     }
 
     f->syscallUUID = syscallUUID;
+=======
+	if(!getHost()->getIPAddr((uint8_t*)&src_ip, getHost()->getRoutingTable((uint8_t*)&des_ip)))
+	{
+		printf("connect : get src_ip error\n");
+		returnSystemCall(syscallUUID, -1);
+		return;
+	}
+	uint16_t min = 1024;
+	bound_port* trav;
+	for(trav = port_head.next ; trav != &port_tail ; trav = trav->next)
+	{
+		if(trav->port == min)
+		{
+			if(min == USHRT_MAX)
+			{
+				printf("connect : ports are full\n");
+				returnSystemCall(syscallUUID, -1);
+				return;
+			}
+			min++;
+		}
+		else if( trav->port > min)
+			break;
+	}
+    f->syscallUUID = syscallUUID;
+
+	bound_port* p = (bound_port*)malloc(sizeof(bound_port));
+	p->port = min;
+	p->addr = src_ip;
+	p->prev = trav->prev;
+	p->next = trav;
+	p->prev->next = p;
+	trav->prev = p;
+>>>>>>> a
 	
 	uint32_t seq_num = ++(f->seq) , ack_num = 0;
-    //printf("connect : sent seq_num : %d, ack_num : 0\n", seq_num);
 	seq_num = htonl(seq_num);
 
 	uint8_t head_len = 5<<4;
