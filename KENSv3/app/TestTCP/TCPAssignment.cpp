@@ -100,6 +100,8 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
     }
 }
 
+
+
 void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 {
 	uint8_t IHL;
@@ -139,17 +141,11 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	uint16_t urg_ptr = 0;
 	packet->readData(14+IHL+18, &urg_ptr, 2);
 
-	//bool URG = flag&0x20;
 	bool ACK = flag&0x10;
-	//bool PSH = flag&0x8;
 	bool RST = flag&0x4;
 	bool SYN = flag&0x2;
 	bool FIN = flag&0x1;
 
-	//printf("recieved ack_num : %d , recieved seq_num : %d\n", ack_num, seq_num);
-    //printf("src_ip %d, src_port %d\n", src_ip, src_port);
-    //printf("des_ip %d, des_port %d\n", des_ip, des_port);
-	
 	if( SYN && ACK ) // 3hand shaking client to server 
 	{
 		//printf("recieved SYN&ACK\n");
@@ -184,23 +180,16 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		}
 		else
 		{
-			//printf("connect : receiving SYN&ACK - no matching socket\n");
 			returnSystemCall(trav->syscallUUID, -1);
 		}
 	}
 	else if( SYN ) // 3hand shaking server to client 
 	{
-		//printf("recieved SYN\n");
 		socket_fd* trav;
 		uint32_t cur_ip; 
 		uint16_t cur_port;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
  		{
-			//printf(" a socket with status %d\n", trav->status);
-			//printf("binded address : %d\n", ntohl(((sockaddr_in*)&trav->addr)->sin_addr.s_addr));
-			//printf("binded port : %d\n", ntohs(((sockaddr_in*)&trav->addr)->sin_port));
-			//printf("target address was : %d\n", des_ip);
-			//printf("target port was : %d\n", des_port);
 			if(trav->status != 3 && trav->status != 1)
 				continue;
 			cur_ip = ((sockaddr_in*)&trav->addr)->sin_addr.s_addr;
@@ -215,7 +204,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		
 		if(trav != &socket_tail)
 		{
-			//printf("SYN : found socket\n");
 			src_ip = htonl(src_ip);
 			des_ip = htonl(des_ip);
 			src_port = htons(src_port);
@@ -233,6 +221,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
                 ack_num = trav->ack;
 			    ack_num = htonl(ack_num);
 				seq_num = htonl(seq_num);
+
                 trav->status = 2;
 				flag = 0x10;
 				writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
@@ -240,7 +229,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			else if(trav->status == 1)	//	listening socket
 			{
                 if(trav->syn_queue.current_size >= trav->syn_queue.max_size){
-				    //printf("SYN : syn_size is already full\n");
 				    return;
 			    }
                 trav->ack = seq_num + 1;
@@ -257,8 +245,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 				flag = 0x12;	//	ACK&SYN
 				writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
 				con_soc->status = 2;
-				//syn packet을 queue에 추가.	
-				//printf("queue_node malloc\n");
 				queue_node* syn_node = (queue_node*)malloc(sizeof(queue_node));
 				syn_node->socket = con_soc;
 				syn_node->src_ip = des_ip;
@@ -271,7 +257,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 				con_soc->connect.des_port = src_port;
 				
 				enqueue(&trav->syn_queue, syn_node);
-				//printf("reacting SYN completed\n");
 			}
 		}
         else
@@ -698,7 +683,6 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
     f->syscallUUID = syscallUUID;
 	
 	uint32_t seq_num = (f->seq)++ , ack_num = 0;
-    //printf("connect : sent seq_num : %d, ack_num : 0\n", seq_num);
 	seq_num = htonl(seq_num);
     f->ack = ack_num;
 	uint8_t head_len = 5<<4;
@@ -717,7 +701,15 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 
 void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int fd, void *buf, size_t count)
 {
-
+    socket_fd* soc = get_socket(pid, fd);
+    queue_node* c = &soc->connect;
+    uint32_t src_ip, des_ip;
+    uint16_t src_port, des_port;
+    
+    src_ip = ntohl(c->src_ip);
+    des_ip = ntohl(c->des_ip);
+    src_port = ntohs(c->src_port);
+    des_port = ntohs(c->des_port);
 }
 
 void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, const void *buf, size_t count)
