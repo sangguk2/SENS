@@ -78,7 +78,8 @@ public:
 		queue accept_queue;
 		queue_node connect;	//	used in client socket
 		uint32_t seq;	//	host order
-    };
+    	uint32_t ack;
+	};
 	
 	struct bound_port
 	{
@@ -97,6 +98,8 @@ public:
     virtual void syscall_listen(UUID syscallUUID, int pid, int fd, int backlog);
     virtual void syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen);
     virtual void syscall_accept(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t *addrlen);
+	virtual void syscall_read(UUID syscallUUID, int pid, int fd, void *buf, size_t count);
+	virtual void syscall_write(UUID syscallUUID, int pid, int fd, const void *buf, size_t count);
 	virtual void syscall_close(UUID syscallUUID, int pid, int fd);
 	virtual void syscall_getsockname(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t *addrlen);
 	virtual void syscall_getpeername(UUID syscallUUID, int pid, int sockfd, sockaddr *addr, socklen_t *addrlen);

@@ -14,7 +14,8 @@
 #include "TCPAssignment.hpp"
 #include <limits.h>
 
-#define WINDOW_SIZE 10000
+#define WINDOW_SIZE 60000
+#define MSS 512
 
 namespace E
 {
@@ -72,7 +73,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
         //this->syscall_read(syscallUUID, pid, param.param1_int, param.param2_ptr, param.param3_int);
         break;
     case WRITE:
-        //this->syscall_write(syscallUUID, pid, param.param1_int, param.param2_ptr, param.param3_int);
+        this->syscall_write(syscallUUID, pid, param.param1_int, param.param2_ptr, param.param3_int);
         break;
     case CONNECT:
         this->syscall_connect(syscallUUID, pid, param.param1_int, static_cast<struct sockaddr*>(param.param2_ptr), (socklen_t)param.param3_int);
@@ -105,9 +106,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	packet->readData(14, &IHL, 1);
 	IHL = (IHL&0xF)*4;
 
-	//uint8_t head_len;
-	//uint16_t window_size = 51200;
-	//
 	uint32_t src_ip, des_ip;
 	packet->readData(14+12, &src_ip, 4);
 	packet->readData(14+16, &des_ip, 4);
@@ -158,22 +156,22 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		socket_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
 		{
-			if(trav->status == 3 && trav->connect.src_ip == htonl(des_ip) && trav->connect.des_ip == htonl(src_ip) && trav->connect.src_port == htons(des_port) && trav->connect.des_port == htons(src_port) && ack_num == trav->seq + 1)
+			if(trav->status == 3 && trav->connect.src_ip == htonl(des_ip) && trav->connect.des_ip == htonl(src_ip) && trav->connect.src_port == htons(des_port) && trav->connect.des_port == htons(src_port) && ack_num == trav->seq)
 				break;
 		}
 		
 		if(trav != &socket_tail)	//	if	maching socket exists
 		{
-            if(ack_num != trav->seq + 1)
+            if(ack_num != trav->seq)
                 return;
 			src_ip = htonl(src_ip);
 			des_ip = htonl(des_ip);
 			src_port = htons(src_port);
 			des_port = htons(des_port);
 			ack_num = seq_num+1;
+            trav->ack = ack_num;
+            seq_num = trav->seq;
 			ack_num = htonl(ack_num);
-			//seq_num++;
-            seq_num = ++(trav->seq);
 			seq_num = htonl(seq_num);
 			uint8_t head_len = 5<<4;
 			flag = 0x10;	//	ACK
@@ -229,17 +227,15 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			if(trav->status == 3)//simulatenous open
 			{   
                 //printf("SYN : simultaneous open\n");
-                ack_num++;
-                //ack_num = ++(trav->seq);
-			    //printf("sent ack_num : %d, ", ack_num);
+                trav->ack = seq_num + 1;
+                trav->seq = ack_num + 1;
+			    seq_num = trav->seq;
+                ack_num = trav->ack;
 			    ack_num = htonl(ack_num);
-			    seq_num++;
-                //printf("seq_num : %d\n", seq_num);
-
-				trav->status = 2;
-				flag = 0x10;
 				seq_num = htonl(seq_num);
-				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
+                trav->status = 2;
+				flag = 0x10;
+				writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
 			}
 			else if(trav->status == 1)	//	listening socket
 			{
@@ -247,19 +243,19 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 				    //printf("SYN : syn_size is already full\n");
 				    return;
 			    }
-
-                ack_num++;
-			    //printf("sent ack_num : %d, ", ack_num);
-			    ack_num = htonl(ack_num);
-			    seq_num++;
+                trav->ack = seq_num + 1;
+                trav->seq = ack_num + 1;
+			    seq_num = trav->seq;
+                ack_num = trav->ack;
 
 				socket_fd* con_soc = create_socket(trav->syscallUUID, trav->pid, trav->domain, trav->protocol);
 				con_soc->addr = trav->addr;
 				con_soc->seq = seq_num;
-
+                con_soc->ack = ack_num;
+			    ack_num = htonl(ack_num);
 				seq_num = htonl(seq_num);
 				flag = 0x12;	//	ACK&SYN
-				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
+				writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
 				con_soc->status = 2;
 				//syn packet을 queue에 추가.	
 				//printf("queue_node malloc\n");
@@ -305,12 +301,10 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			src_port = htons(src_port);
 			des_port = htons(des_port);
 			
-			
-			ack_num++;
-			//ack_num = seq_num + 1;
+			seq_num = ack_num + 1;
+            ack_num = seq_num = 1;
+            trav->ack = ack_num;
 			ack_num = htonl(ack_num);
-			seq_num++;
-			//seq_num = ++(trav->seq);
 			seq_num = htonl(seq_num);
 			
 			flag = 0x10;	//	ACK
@@ -321,18 +315,18 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			if(trav->status == 4)	//	ESTABLISHED
 			{
 				//printf("stop establishing\n");
-				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
+				writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
 				trav->status = 5;
 			}
 			else if(trav->status == 7)	//	FIN_WAIT_1
 			{
 				//printf("stop fin-wait-1\n");
-				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
+				writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
 				trav->status = 8;
 			}
 			else if(trav->status == 9)	//	FIN_WAIT_2
 			{
-				writePacket(&des_ip, &src_ip, &des_port, &src_port, &ack_num, &seq_num, &head_len, &flag, &window, &urg_ptr);
+				writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
 				//trav->status = 10;
 				UUID id = trav->syscallUUID;
 				free_socket(trav->pid, trav->fd);
@@ -395,10 +389,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		
 		if(context == 1)	//	Establishing
 		{
-			//printf("recieved ack_num = %d , sent seq_num = %d\n", ack_num, trav->seq);
 			if(1){
-			//if(trav->seq + 1 == ack_num){
-				//printf("ACK : start establishing\n");
 				trav->status = 4;
 				
 				queue_node* pr = mov->prev;
@@ -513,7 +504,7 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
 	soc->connect.prev = NULL;
 	soc->connect.next = NULL;
 	
-	soc->seq = 1234;
+	soc->seq = 0;
 
 	soc->syn_queue.head.prev = NULL;
 	soc->syn_queue.head.next = &soc->syn_queue.tail;
@@ -706,10 +697,10 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 
     f->syscallUUID = syscallUUID;
 	
-	uint32_t seq_num = ++(f->seq) , ack_num = 0;
+	uint32_t seq_num = (f->seq)++ , ack_num = 0;
     //printf("connect : sent seq_num : %d, ack_num : 0\n", seq_num);
 	seq_num = htonl(seq_num);
-
+    f->ack = ack_num;
 	uint8_t head_len = 5<<4;
 	uint8_t flag = 0x2;
 	uint16_t window = htons(WINDOW_SIZE);
@@ -722,6 +713,41 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 	f->connect.des_ip = des_ip;
 	f->connect.src_port = src_port;
 	f->connect.des_port = des_port;
+}
+
+void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int fd, void *buf, size_t count)
+{
+
+}
+
+void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, const void *buf, size_t count)
+{
+    struct socket_fd *soc = get_socket(pid, fd);
+
+    uint32_t src_ip = soc->connect.src_ip;
+	uint32_t des_ip = soc->connect.des_ip;
+	uint16_t src_port = soc->connect.src_port;
+	uint16_t des_port = soc->connect.des_port;
+	uint32_t ack_num;
+	uint8_t head_len = 5<<4;
+	uint8_t flag = 0x10;
+	uint16_t window = htons(WINDOW_SIZE);
+	uint16_t urg_ptr = 0;
+    uint8_t *from = (uint8_t*)buf;
+    
+    size_t i = 0;
+    while(i < count)
+    {
+        uint32_t seq_num = soc->seq;
+	    seq_num = htonl(seq_num);
+        size_t templen = (count - i > MSS)?MSS:(count - i);
+        ack_num = soc->ack;
+        ack_num = htonl(ack_num);
+	    writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr, from+i, templen);
+        soc->seq += templen;
+        i += templen;
+    }
+    returnSystemCall(syscallUUID, count);
 }
 
 void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
@@ -750,7 +776,7 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 				uint32_t src_ip = soc->connect.src_ip, des_ip = soc->connect.des_ip;
 				uint16_t src_port = soc->connect.src_port, des_port = soc->connect.des_port;
 			
-				uint32_t seq_num = ++(soc->seq), ack_num = 0;
+				uint32_t seq_num = (soc->seq)++, ack_num = 0;
 				seq_num = htonl(seq_num);
 
 				uint8_t head_len = 5<<4 , flag = 0x1;	//	FIN
@@ -765,7 +791,7 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 				uint32_t src_ip = soc->connect.src_ip, des_ip = soc->connect.des_ip;
 				uint16_t src_port = soc->connect.src_port, des_port = soc->connect.des_port;
 			
-				uint32_t seq_num = ++(soc->seq), ack_num = 0;
+				uint32_t seq_num = (soc->seq)++, ack_num = 0;
 				seq_num = htonl(seq_num);
 
 				uint8_t head_len = 5<<4 , flag = 0x1;	//	FIN
@@ -856,8 +882,8 @@ void TCPAssignment::writePacket(uint32_t *src_ip, uint32_t *des_ip, uint16_t *sr
     p->writeData(14+16, des_ip, 4);
     p->writeData(14+20, src_port,2);
     p->writeData(14+20+2, des_port,2);
-    p->writeData(14+20+4, seq_num,4); //sequence number
-    p->writeData(14+20+8, ack_num,4); //ack number
+    p->writeData(14+20+4, seq_num,4);
+    p->writeData(14+20+8, ack_num,4);
     p->writeData(14+20+12, head_len, 1);
 	p->writeData(14+20+13, flag, 1);
     p->writeData(14+20+14, window_size, 2);
