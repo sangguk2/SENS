@@ -70,14 +70,16 @@ public:
 		struct sockaddr addr;	//	network order
         socket_fd* prev;
         socket_fd* next;
-
 		int status;
 		bool is_passive;
+        queue internal_buffer;
 		queue syn_queue;
 		queue established_queue;
 		queue accept_queue;
+        queue received_pakcets;
 		queue_node connect;	//	used in client socket
 		uint32_t seq;	//	host order
+        uint32_t ack;   // host order
     };
 	
 	struct bound_port
