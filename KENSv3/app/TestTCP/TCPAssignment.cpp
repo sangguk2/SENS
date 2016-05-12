@@ -152,7 +152,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		socket_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
 		{
-			if(trav->status == 3 && trav->connect.src_ip == htonl(des_ip) && trav->connect.des_ip == htonl(src_ip) && trav->connect.src_port == htons(des_port) && trav->connect.des_port == htons(src_port) && ack_num == trav->seq)
+			if(trav->status == 3 && trav->src_ip == htonl(des_ip) && trav->des_ip == htonl(src_ip) && trav->src_port == htons(des_port) && trav->des_port == htons(src_port) && ack_num == trav->seq)
 				break;
 		}
 		
@@ -251,10 +251,10 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 				syn_node->des_ip = src_ip;
 				syn_node->src_port = des_port;
 				syn_node->des_port = src_port;
-				con_soc->connect.src_ip = des_ip;
-				con_soc->connect.des_ip = src_ip;
-				con_soc->connect.src_port = des_port;
-				con_soc->connect.des_port = src_port;
+				con_soc->src_ip = des_ip;
+				con_soc->des_ip = src_ip;
+				con_soc->src_port = des_port;
+				con_soc->des_port = src_port;
 				
 				enqueue(&trav->syn_queue, syn_node);
 			}
@@ -270,9 +270,8 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		socket_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
 		{
-			queue_node* c = &trav->connect;
-			if(c->src_ip == htonl(des_ip) && c->des_ip == htonl(src_ip)
-					&& c->src_port == htons(des_port) && c->des_port == htons(src_port))
+			if(trav->src_ip == htonl(des_ip) && trav->des_ip == htonl(src_ip)
+					&& trav->src_port == htons(des_port) && trav->des_port == htons(src_port))
 			{
 				context = 1;
 				break;
@@ -348,9 +347,9 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 				for( t = synq->head.next ; t != &synq->tail ; t = t->next)
 				{
 					ans = t->socket;
-					if(ans->connect.src_port == htons(des_port)
-							&& ans->connect.des_ip == htonl(src_ip)
-							&& ans->connect.des_port == htons(src_port))
+					if(ans->src_port == htons(des_port)
+							&& ans->des_ip == htonl(src_ip)
+							&& ans->des_port == htons(src_port))
 					{
 						if(ans->status != 2)
 						{
@@ -394,10 +393,10 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
         //check if there is simultaneous opening socket
         for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
 		{
-			if((trav->connect.src_ip == 0 || trav->connect.src_ip == htonl(des_ip))
-				&& trav->connect.src_port == htons(des_port)
-				&& trav->connect.des_ip == htonl(src_ip)
-				&& trav->connect.des_port == htons(src_port)
+			if((trav->src_ip == 0 || trav->src_ip == htonl(des_ip))
+				&& trav->src_port == htons(des_port)
+				&& trav->des_ip == htonl(src_ip)
+				&& trav->des_port == htons(src_port)
                 && trav->status == 2){
                 break;
             }
@@ -415,10 +414,10 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		//Not 3-way handshaking from here
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
 		{
-			if((trav->connect.src_ip == 0 || trav->connect.src_ip == htonl(des_ip))
-				&& trav->connect.src_port == htons(des_port)
-				&& trav->connect.des_ip == htonl(src_ip)
-				&& trav->connect.des_port == htons(src_port)){
+			if((trav->src_ip == 0 || trav->src_ip == htonl(des_ip))
+				&& trav->src_port == htons(des_port)
+				&& trav->des_ip == htonl(src_ip)
+				&& trav->des_port == htons(src_port)){
                 break;
             }
 			
@@ -482,12 +481,10 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
 	soc->is_passive = false;
 	soc->status = 0;
 
-	soc->connect.src_ip = 0;
-	soc->connect.des_ip = 0;
-	soc->connect.src_port = 0;
-	soc->connect.des_port = 0;
-	soc->connect.prev = NULL;
-	soc->connect.next = NULL;
+	soc->src_ip = 0;
+	soc->des_ip = 0;
+	soc->src_port = 0;
+	soc->des_port = 0;
 	
 	soc->seq = 0;
 
@@ -693,33 +690,28 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 	writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
 
 	f->status = 3;
-	f->connect.src_ip = src_ip;
-	f->connect.des_ip = des_ip;
-	f->connect.src_port = src_port;
-	f->connect.des_port = des_port;
+	f->src_ip = src_ip;
+	f->des_ip = des_ip;
+	f->src_port = src_port;
+	f->des_port = des_port;
 }
 
 void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int fd, void *buf, size_t count)
 {
     socket_fd* soc = get_socket(pid, fd);
-    queue_node* c = &soc->connect;
     uint32_t src_ip, des_ip;
     uint16_t src_port, des_port;
     
-    src_ip = ntohl(c->src_ip);
-    des_ip = ntohl(c->des_ip);
-    src_port = ntohs(c->src_port);
-    des_port = ntohs(c->des_port);
 }
 
 void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, const void *buf, size_t count)
 {
     struct socket_fd *soc = get_socket(pid, fd);
 
-    uint32_t src_ip = soc->connect.src_ip;
-	uint32_t des_ip = soc->connect.des_ip;
-	uint16_t src_port = soc->connect.src_port;
-	uint16_t des_port = soc->connect.des_port;
+    uint32_t src_ip = soc->src_ip;
+	uint32_t des_ip = soc->des_ip;
+	uint16_t src_port = soc->src_port;
+	uint16_t des_port = soc->des_port;
 	uint32_t ack_num;
 	uint8_t head_len = 5<<4;
 	uint8_t flag = 0x10;
@@ -765,8 +757,8 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 		case 4:	//	ESTABLISHED
 			soc->status = 7;	//	FIN_WAIT_1
 			{
-				uint32_t src_ip = soc->connect.src_ip, des_ip = soc->connect.des_ip;
-				uint16_t src_port = soc->connect.src_port, des_port = soc->connect.des_port;
+				uint32_t src_ip = soc->src_ip, des_ip = soc->des_ip;
+				uint16_t src_port = soc->src_port, des_port = soc->des_port;
 			
 				uint32_t seq_num = (soc->seq)++, ack_num = 0;
 				seq_num = htonl(seq_num);
@@ -780,8 +772,8 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 		case 5:	//	CLOSE_WAIT
 			soc->status = 6;	//	LAST_ACK
 			{
-				uint32_t src_ip = soc->connect.src_ip, des_ip = soc->connect.des_ip;
-				uint16_t src_port = soc->connect.src_port, des_port = soc->connect.des_port;
+				uint32_t src_ip = soc->src_ip, des_ip = soc->des_ip;
+				uint16_t src_port = soc->src_port, des_port = soc->des_port;
 			
 				uint32_t seq_num = (soc->seq)++, ack_num = 0;
 				seq_num = htonl(seq_num);
@@ -819,8 +811,8 @@ void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, socka
 
 void TCPAssignment::syscall_getpeername(UUID syscallUUID, int pid, int sockfd, sockaddr *addr, socklen_t *addrlen)
 {
-    queue_node* q = &get_socket(pid,sockfd)->connect; 
-    if(!q->des_ip && !q->des_port)
+    struct socket_fd *soc = get_socket(pid,sockfd); 
+    if(!(soc->des_ip) && !(soc->des_port))
     {
         returnSystemCall(syscallUUID, -1);
         return;
@@ -829,9 +821,9 @@ void TCPAssignment::syscall_getpeername(UUID syscallUUID, int pid, int sockfd, s
         returnSystemCall(syscallUUID, -1);
         return;
     }*/
-    ((sockaddr_in*)addr)->sin_addr.s_addr = q->des_ip;
+    ((sockaddr_in*)addr)->sin_addr.s_addr = soc->des_ip;
     ((sockaddr_in*)addr)->sin_family=AF_INET;
-    ((sockaddr_in*)addr)->sin_port = q->des_port;
+    ((sockaddr_in*)addr)->sin_port = soc->des_port;
     returnSystemCall(syscallUUID, 0);
 }
 

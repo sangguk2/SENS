@@ -77,7 +77,10 @@ public:
 		queue established_queue;
 		queue accept_queue;
         queue received_pakcets;
-		queue_node connect;	//	used in client socket
+
+		uint32_t src_ip, des_ip;	//	network order
+		uint16_t src_port, des_port;	//	network order
+
 		uint32_t seq;	//	host order
         uint32_t ack;   //	host order
     };
