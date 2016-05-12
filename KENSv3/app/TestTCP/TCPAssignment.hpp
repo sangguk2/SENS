@@ -61,8 +61,6 @@ public:
 		queue_node tail;
 	};
 
-        
-
     struct socket_fd
 	{
         int fd;
@@ -76,13 +74,18 @@ public:
 		int status;
 		bool is_passive;
         
-		uint8_t rbuf[WINDOW_SIZE];
+		uint8_t rbuf[WINDOW_SIZE];	//	received payload
 		int rbuf_start;
-		int rbuf_len;
-		uint32_t rseq[WINDOW_NUM];
+		uint32_t rseq[WINDOW_NUM];	//	received sequence number , host order
+		uint16_t rlen[WINDOW_NUM];
 		int rseq_start;
 		int rseq_len;
 		
+		bool read_blocked;
+		UUID readUUID;
+		uint8_t *readbuf;
+		int readlen;
+
 		//queue internal_buffer;
 		queue syn_queue;
 		queue established_queue;
@@ -112,7 +115,15 @@ public:
     virtual socket_fd* get_socket(int pid, int fd);
 	virtual int free_socket(int pid, int fd);
 	inline virtual int check_four(struct socket_fd *soc, uint32_t src_ip, uint32_t des_ip, uint16_t src_port, uint16_t des_port);
-	
+
+	virtual int lookup_rseq(struct socket_fd *s, uint32_t seq_num);
+	virtual bool write_rbuf(struct socket_fd *s, uint8_t* buf, uint16_t len, int seq_num);
+	virtual void store_rseq(struct socket_fd *s, uint32_t seq_num, uint16_t len);
+	virtual bool store_recv(struct socket_fd *s, uint8_t* payload, uint16_t len, int seq_num);
+	virtual int get_recv(struct socket_fd *s, uint8_t *buf, int len);
+
+	virtual void eval_ACK(struct socket_fd *s);
+
 	virtual void syscall_socket(UUID syscallUUID, int pid, int domain, int protocol);
     virtual void syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen);
     virtual void syscall_listen(UUID syscallUUID, int pid, int fd, int backlog);

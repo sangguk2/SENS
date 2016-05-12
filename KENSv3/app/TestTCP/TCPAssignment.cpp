@@ -157,6 +157,8 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		{
             if(ack_num != trav->seq)
                 return;
+			store_rseq(trav, seq_num, 0);
+
 			src_ip = htonl(src_ip);
 			des_ip = htonl(des_ip);
 			src_port = htons(src_port);
@@ -171,7 +173,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			window = htons(WINDOW_SIZE);
 			urg_ptr = 0;
 			writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
-
+			
 			trav->status = 4;
 			returnSystemCall(trav->syscallUUID, 0);
 		}
@@ -371,7 +373,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		{
 			if(1){
 				trav->status = 4;
-				
+				store_rseq(trav, seq_num, 0);
 				queue_node* pr = mov->prev;
 				pr->next = mov->next;
 				pr->next->prev = pr;
@@ -401,9 +403,16 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 
         if(trav->status == 2)   //  simultaneous open
         {
+			if(tot_len == 0)
+				store_rseq(trav, seq_num, 0);
 		    trav->status = 4;
             returnSystemCall(trav->syscallUUID, 0);
+			context = 2;
         }
+		else if(trav->status == 4)
+		{
+			context = 4;
+		}
 		else if(trav->status == 6)	//	LAST_ACK
 		{
 			UUID id = trav->syscallUUID;
@@ -414,39 +423,64 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		}
 		else if(trav->status == 7)	//	FIN_WAIT_1
 		{
-
+			context = 7;
 		}
 		else if(trav->status == 8)	//	CLOSING
 		{
-
+			context = 8;
+		}
+		else
+		{
+			context = 100;
+			printf("other case in ACK arrived");
 		}
         
         if(tot_len > 0)
         {
-            if(seq_num < trav->ack)
-            {
-                src_ip = htonl(src_ip);
-			    des_ip = htonl(des_ip);
-			    src_port = htons(src_port);
-			    des_port = htons(des_port);
+			if(seq_num >= trav->ack)
+			{
+            	uint8_t *payload = (uint8_t*)malloc(tot_len);
+            	packet->readData(54, payload, tot_len);
+            	if(store_recv(trav, payload, tot_len, seq_num))
+				{
+					eval_ACK(trav);
+					if(trav->read_blocked)
+					{
+						int readable = trav->ack - trav->rseq[trav->rseq_start], read;
+						if(readable <= 0)
+						{
+							printf("syscall_read : readable <= 0 case\n");
+							return;
+						}
+						read = (readable > trav->readlen) ? trav->readlen : readable;
+						trav->read_blocked = false;
+						returnSystemCall(trav->readUUID, get_recv(trav, trav->readbuf, read));
+					}
+				}
+				free(payload);
+			}
 			
-			    seq_num = trav->seq;
-                ack_num = trav->ack;
-			    seq_num = htonl(seq_num);
-                ack_num = htonl(ack_num);
-			
-			    flag = 0x10;	//	ACK
-			    uint8_t head_len = 5<<4;
-			    window = htons(WINDOW_SIZE);
-			    urg_ptr = 0;
+            src_ip = htonl(src_ip);
+		    des_ip = htonl(des_ip);
+		    src_port = htons(src_port);
+		    des_port = htons(des_port);
+		
+		    seq_num = trav->seq;
+            ack_num = trav->ack;
+		    seq_num = htonl(seq_num);
+            ack_num = htonl(ack_num);
+		
+		    flag = 0x10;	//	ACK
+		    uint8_t head_len = 5<<4;
+		    window = htons(WINDOW_SIZE);
+		    urg_ptr = 0;
 
-				writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
-                return;
-            }
-            uint8_t *payload = (uint8_t*)malloc(tot_len);
-            packet->readData(54, payload, tot_len);
-            store_recv(trav, payload, tot_len, seq_num);
+			writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
         }
+		if(context != 2)
+		{
+			//	use ack
+		}
 	}
 	else if( RST )
 	{
@@ -458,6 +492,137 @@ void TCPAssignment::timerCallback(void* payload)
 {
     //Time t = this->getHost()->getSystem()->getCurrentTime();
     //addTimer(payload, t);
+}
+
+int TCPAssignment::lookup_rseq(struct socket_fd *s, uint32_t seq_num)
+{
+	int i;
+	for(i = 0 ; i < s->rseq_len ; i ++)
+	{
+		if(s->rseq[(s->rseq_start + i) % WINDOW_NUM] == seq_num)
+			return (s->rseq_start + i) % WINDOW_NUM;
+	}
+	return -1;
+}
+
+bool TCPAssignment::write_rbuf(struct socket_fd *s, uint8_t* buf, uint16_t len, int seq_num)
+{
+	if(lookup_rseq(s, seq_num) == -1)
+		return true;
+	int from = (s->rbuf_start + seq_num - s->rseq[s->rseq_start]) % WINDOW_SIZE;
+	if(from + (int)len >= WINDOW_SIZE)
+	{
+		if(from <= s->rbuf_start || ((int)len - WINDOW_SIZE + from > s->rbuf_start))
+			return false;
+		memcpy(s->rbuf + from, buf, WINDOW_SIZE - from);
+		memcpy(s->rbuf, buf + WINDOW_SIZE - from, (int)len - WINDOW_SIZE + from);
+	}
+	else
+	{
+		if(from <= s->rbuf_start && from+(int)len > s->rbuf_start)
+			return false;
+		memcpy(s->rbuf + from, buf, len);
+	}
+	return true;
+}
+
+void TCPAssignment::store_rseq(struct socket_fd *s, uint32_t seq_num, uint16_t len)
+{
+	if(lookup_rseq(s, seq_num) == -1)
+		return;
+	s->rseq[(s->rseq_start + s->rseq_len + 1) % WINDOW_NUM] = seq_num;
+	s->rlen[(s->rseq_start + s->rseq_len + 1) % WINDOW_NUM] = len;
+	s->rseq_len ++;
+}
+
+bool TCPAssignment::store_recv(struct socket_fd *s, uint8_t* payload, uint16_t len, int seq_num)
+{
+	if(s->rseq_len == WINDOW_NUM)
+		return false;
+	if(!write_rbuf(s, payload, len, seq_num))
+		return false;
+	store_rseq(s, seq_num, len);
+	return true;
+}
+
+int TCPAssignment::get_recv(struct socket_fd *s, uint8_t *buf, int len)
+{
+	if(s->rbuf_start + len >= WINDOW_SIZE)
+	{
+		memcpy(buf, s->rbuf + s->rbuf_start, WINDOW_SIZE - s->rbuf_start);
+		memcpy(buf + WINDOW_SIZE - s->rbuf_start, s->rbuf, len - WINDOW_SIZE + s->rbuf_start);
+		s->rbuf_start += len - WINDOW_SIZE;
+		if(s->rbuf_start < 0)
+		{
+			printf("get_recv : s->rbuf_start became negative\n");
+			return -1;
+		}
+	}
+	else
+	{
+		memcpy(buf, s->rbuf + s->rbuf_start, len);
+		s->rbuf_start += len;
+	}
+	int seq, next_seq = s->rseq[s->rseq_start] + len , i, pre_len = s->rseq_len;
+	for(i = 0 ; i < pre_len ; i ++)
+	{
+		seq = s->rseq[s->rseq_start];
+		if(seq < next_seq)
+		{
+			s->rseq_start = (s->rseq_start + 1) % WINDOW_NUM;
+			s->rseq_len -= 1;
+		}
+		else if(seq == next_seq)
+			return len;
+		else
+		{
+			s->rseq_start = (s->rseq_start - 1) % WINDOW_NUM;
+			s->rseq_len += 1;
+			s->rseq[s->rseq_start] = next_seq;	//	artificial seq , maybe cannot receive
+			s->rlen[s->rseq_start] = seq - next_seq;
+			return len;
+		}
+	}
+	if(s->rseq[(s->rseq_start - 1) % WINDOW_NUM] + s->rlen[(s->rseq_start - 1) % WINDOW_NUM] != next_seq)
+	{
+		printf("get_recv : next_seq not equal error\n");
+		return -1;
+	}
+	s->rseq_start = (s->rseq_start - 1) % WINDOW_NUM;
+	s->rseq_len += 1;
+	s->rseq[s->rseq_start] = next_seq;	//	predictive seq , maybe receive
+	s->rlen[s->rseq_start] = 0;
+	return len;
+}
+
+void TCPAssignment::eval_ACK(struct socket_fd *s)
+{	
+	int i, seq, len, pre_seq = -1, pre_len = -1;
+	for(i = 0 ; i < s->rseq_len ; i++)
+	{
+		seq = s->rseq[(s->rseq_start + i) % WINDOW_NUM];
+		len = (int)s->rlen[(s->rseq_start + i) % WINDOW_NUM];
+		if(pre_seq >= 0)
+		{
+			if(seq < pre_seq + pre_len)
+			{
+				printf("eval_ACK : error in rseq or rlen array\n");
+				return;
+			}
+			else if(seq == pre_seq + pre_len)
+			{
+				pre_seq = seq;
+				pre_len = len;
+			}
+			else
+				break;
+		}
+	}
+	if(pre_seq == -1)
+		s->ack = (s->ack < seq + len) ? seq + len : s->ack;
+	else
+		s->ack = (s->ack < pre_seq + pre_len) ? pre_seq + pre_len : s->ack;
+	
 }
 
 TCPAssignment::socket_fd* TCPAssignment::get_socket(int pid, int fd)
@@ -483,9 +648,10 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
 	soc->status = 0;
 
     soc->rbuf_start = 0;
-    soc->rbuf_len = 0;
     soc->rseq_start = 0;
     soc->rseq_len = 0;
+
+	soc->read_blocked = false;
 
 	soc->src_ip = 0;
 	soc->des_ip = 0;
@@ -493,6 +659,7 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
 	soc->des_port = 0;
 	
 	soc->seq = 0;
+	soc->ack = 0;
 
 	soc->syn_queue.head.prev = NULL;
 	soc->syn_queue.head.next = &soc->syn_queue.tail;
@@ -704,10 +871,28 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 
 void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int fd, void *buf, size_t count)
 {
-    socket_fd* soc = get_socket(pid, fd);
-    uint32_t src_ip, des_ip;
-    uint16_t src_port, des_port;
-    
+    socket_fd* s = get_socket(pid, fd);
+    size_t readable, read;
+	if(s->rseq_len == 0)
+	{
+		readable = 0;	//	maybe can be deleted
+		s->read_blocked = true;
+		s->readUUID = syscallUUID;
+		s->readbuf = (uint8_t*)buf;
+		s->readlen = (int)count;
+	}
+	else
+	{
+		readable = s->ack - s->rseq[s->rseq_start];
+		if(readable <= 0)
+		{
+			printf("syscall_read : readable <= 0 case\n");
+			return;
+		}
+		read = (readable > count) ? count : readable;
+		returnSystemCall(syscallUUID, get_recv(s, (uint8_t*)buf, (int)count));
+		return;
+	}	
 }
 
 void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, const void *buf, size_t count)
