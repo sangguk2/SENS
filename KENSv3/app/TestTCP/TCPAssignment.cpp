@@ -14,9 +14,6 @@
 #include "TCPAssignment.hpp"
 #include <limits.h>
 
-#define WINDOW_SIZE 60000
-#define MSS 512
-
 namespace E
 {
 
@@ -152,7 +149,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		socket_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
 		{
-			if(trav->status == 3 && trav->src_ip == htonl(des_ip) && trav->des_ip == htonl(src_ip) && trav->src_port == htons(des_port) && trav->des_port == htons(src_port) && ack_num == trav->seq)
+			if(trav->status == 3 && check_four(trav, htonl(des_ip), htonl(src_ip), htons(des_port), htons(src_port)) && ack_num == trav->seq)
 				break;
 		}
 		
@@ -270,8 +267,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		socket_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
 		{
-			if(trav->src_ip == htonl(des_ip) && trav->des_ip == htonl(src_ip)
-					&& trav->src_port == htons(des_port) && trav->des_port == htons(src_port))
+			if(check_four(trav, htonl(des_ip), htonl(src_ip), htons(des_port), htons(src_port)))
 			{
 				context = 1;
 				break;
@@ -396,41 +392,24 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			if((trav->src_ip == 0 || trav->src_ip == htonl(des_ip))
 				&& trav->src_port == htons(des_port)
 				&& trav->des_ip == htonl(src_ip)
-				&& trav->des_port == htons(src_port)
-                && trav->status == 2){
+				&& trav->des_port == htons(src_port))
                 break;
-            }
-			
 		}
-        if(trav != &socket_tail)
-        {
-            //printf("ACK : start simultaneous establishing\n");
-            //printf("ACK UUID is %lu\n", trav->syscallUUID);
-            returnSystemCall(trav->syscallUUID, 0);
-		    trav->status = 4;
-        }
-		
-		//printf("not 3-way handshaking!\n");
-		//Not 3-way handshaking from here
-		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
-		{
-			if((trav->src_ip == 0 || trav->src_ip == htonl(des_ip))
-				&& trav->src_port == htons(des_port)
-				&& trav->des_ip == htonl(src_ip)
-				&& trav->des_port == htons(src_port)){
-                break;
-            }
-			
-		}
-        if(trav == &socket_tail){
-            //printf("There is no socket for closing\n");
+
+        if(trav == &socket_tail)
              return;
+
+        if(trav->status == 2)   //  simultaneous open
+        {
+		    trav->status = 4;
+            returnSystemCall(trav->syscallUUID, 0);
         }
-		if(trav->status == 6)	//	LAST_ACK
+		else if(trav->status == 6)	//	LAST_ACK
 		{
 			UUID id = trav->syscallUUID;
 			free_socket(trav->pid, trav->fd);
 			returnSystemCall(id, 0);
+            return;
 			//printf("server socket closed completely\n");
 		}
 		else if(trav->status == 7)	//	FIN_WAIT_1
@@ -441,12 +420,34 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		{
 
 		}
+        
+        if(tot_len > 0)
+        {
+            if(seq_num < trav->ack)
+            {
+                src_ip = htonl(src_ip);
+			    des_ip = htonl(des_ip);
+			    src_port = htons(src_port);
+			    des_port = htons(des_port);
+			
+			    seq_num = trav->seq;
+                ack_num = trav->ack;
+			    seq_num = htonl(seq_num);
+                ack_num = htonl(ack_num);
+			
+			    flag = 0x10;	//	ACK
+			    uint8_t head_len = 5<<4;
+			    window = htons(WINDOW_SIZE);
+			    urg_ptr = 0;
 
+				writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
+                return;
+            }
+            uint8_t *payload = (uint8_t*)malloc(tot_len);
+            packet->readData(54, payload, tot_len);
+            store_recv(trav, payload, tot_len, seq_num);
+        }
 	}
-	/*else if( FIN )
-	{
-		
-	}*/
 	else if( RST )
 	{
 		printf("recieved RST\n");
@@ -480,6 +481,11 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
     soc->syscallUUID = syscallUUID;
 	soc->is_passive = false;
 	soc->status = 0;
+
+    soc->rbuf_start = 0;
+    soc->rbuf_len = 0;
+    soc->rseq_start = 0;
+    soc->rseq_len = 0;
 
 	soc->src_ip = 0;
 	soc->des_ip = 0;
@@ -858,6 +864,10 @@ TCPAssignment::queue_node* TCPAssignment::dequeue(queue* q){
 	return ret;
 }
 
+inline int TCPAssignment::check_four(struct socket_fd *soc, uint32_t src_ip, uint32_t des_ip, uint16_t src_port, uint16_t des_port)
+{
+    return (soc->src_ip == src_ip && soc->des_ip == des_ip && soc->src_port == src_port && soc->des_port == des_port);
+}
 
 void TCPAssignment::writePacket(uint32_t *src_ip, uint32_t *des_ip, uint16_t *src_port, uint16_t *des_port, uint32_t *seq_num, uint32_t *ack_num, uint8_t *head_len, uint8_t *flag, uint16_t *window_size, uint16_t *urg_ptr, uint8_t *payload, size_t size)
 {

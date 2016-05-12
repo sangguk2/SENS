@@ -16,8 +16,11 @@
 #include <netinet/ip.h>
 #include <netinet/in.h>
 
-
 #include <E/E_TimerModule.hpp>
+
+#define MSS 512
+#define WINDOW_NUM 100
+#define WINDOW_SIZE (MSS*WINDOW_NUM)
 
 namespace E
 {
@@ -72,11 +75,19 @@ public:
         socket_fd* next;
 		int status;
 		bool is_passive;
-        queue internal_buffer;
+        
+		uint8_t rbuf[WINDOW_SIZE];
+		int rbuf_start;
+		int rbuf_len;
+		uint32_t rseq[WINDOW_NUM];
+		int rseq_start;
+		int rseq_len;
+		
+		//queue internal_buffer;
 		queue syn_queue;
 		queue established_queue;
 		queue accept_queue;
-        queue received_pakcets;
+        //queue received_pakcets;
 
 		uint32_t src_ip, des_ip;	//	network order
 		uint16_t src_port, des_port;	//	network order
@@ -95,9 +106,14 @@ public:
 
 	virtual void enqueue(queue* q, queue_node* enter);
 	virtual queue_node* dequeue(queue* q);
-
+	virtual void manage_accept_queue(socket_fd* soc);
+	
+	virtual socket_fd* create_socket(UUID syscallUUID, int pid, int domain, int protocol);
     virtual socket_fd* get_socket(int pid, int fd);
-    virtual void syscall_socket(UUID syscallUUID, int pid, int domain, int protocol);
+	virtual int free_socket(int pid, int fd);
+	inline virtual int check_four(struct socket_fd *soc, uint32_t src_ip, uint32_t des_ip, uint16_t src_port, uint16_t des_port);
+	
+	virtual void syscall_socket(UUID syscallUUID, int pid, int domain, int protocol);
     virtual void syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen);
     virtual void syscall_listen(UUID syscallUUID, int pid, int fd, int backlog);
     virtual void syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen);
@@ -107,10 +123,8 @@ public:
 	virtual void syscall_close(UUID syscallUUID, int pid, int fd);
 	virtual void syscall_getsockname(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t *addrlen);
 	virtual void syscall_getpeername(UUID syscallUUID, int pid, int sockfd, sockaddr *addr, socklen_t *addrlen);
+	
 	virtual void writePacket(uint32_t *src_ip, uint32_t *dst_ip, uint16_t *src_port, uint16_t *dst_port, uint32_t *seq_num, uint32_t *ack_num, uint8_t *head_len, uint8_t *flag, uint16_t *window_size, uint16_t *urg_ptr, uint8_t *payload = NULL, size_t size = 0);
-	virtual socket_fd* create_socket(UUID syscallUUID, int pid, int domain, int protocol);
-	virtual int free_socket(int pid, int fd);
-	virtual void manage_accept_queue(socket_fd* soc);
 
 protected:
 	virtual void systemCallback(UUID syscallUUID, int pid, const SystemCallParameter& param) final;
