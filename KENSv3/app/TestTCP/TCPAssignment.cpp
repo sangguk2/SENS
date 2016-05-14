@@ -67,7 +67,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
         this->syscall_close(syscallUUID, pid, param.param1_int);
         break;
     case READ:
-        //this->syscall_read(syscallUUID, pid, param.param1_int, param.param2_ptr, param.param3_int);
+        this->syscall_read(syscallUUID, pid, param.param1_int, param.param2_ptr, param.param3_int);
         break;
     case WRITE:
         this->syscall_write(syscallUUID, pid, param.param1_int, param.param2_ptr, param.param3_int);
@@ -157,7 +157,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		{
             if(ack_num != trav->seq)
                 return;
-			store_rseq(trav, seq_num, 0);
+			store_rseq(trav, seq_num + 1, 0);
 
 			src_ip = htonl(src_ip);
 			des_ip = htonl(des_ip);
@@ -283,9 +283,13 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			src_port = htons(src_port);
 			des_port = htons(des_port);
 			
-			seq_num = ack_num + 1;
-            ack_num = seq_num = 1;
-            trav->ack = ack_num;
+            if(seq_num == trav->ack)
+                trav->ack ++;
+            seq_num = trav->seq;
+            ack_num = trav->ack;
+			//seq_num = ack_num + 1;
+            //ack_num = seq_num = 1;
+            //trav->ack = ack_num;
 			ack_num = htonl(ack_num);
 			seq_num = htonl(seq_num);
 			
@@ -439,27 +443,28 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
         {
 			if(seq_num >= trav->ack)
 			{
+                printf("flag1\n");
             	uint8_t *payload = (uint8_t*)malloc(tot_len);
             	packet->readData(54, payload, tot_len);
             	if(store_recv(trav, payload, tot_len, seq_num))
 				{
-					eval_ACK(trav);
+                    printf("flag2\n");
 					if(trav->read_blocked)
 					{
-						int readable = trav->ack - trav->rseq[trav->rseq_start], read;
-						if(readable <= 0)
-						{
-							printf("syscall_read : readable <= 0 case\n");
-							return;
-						}
-						read = (readable > trav->readlen) ? trav->readlen : readable;
-						trav->read_blocked = false;
-						returnSystemCall(trav->readUUID, get_recv(trav, trav->readbuf, read));
+                        printf("flag3\n");
+						
+	                    int read = ((int)trav->rbuf_len > (int)trav->readlen) ? trav->readlen : trav->rbuf_len;
+	                    trav->read_blocked = false;
+						returnSystemCall(trav->readUUID, read_rbuf(trav, trav->readbuf, read));
 					}
 				}
+                else
+                    printf("cannot receive\n");
 				free(payload);
 			}
-			
+            else
+                printf("flag4\n");
+			printf("send ack = %u\n", trav->ack);
             src_ip = htonl(src_ip);
 		    des_ip = htonl(des_ip);
 		    src_port = htons(src_port);
@@ -494,67 +499,195 @@ void TCPAssignment::timerCallback(void* payload)
     //addTimer(payload, t);
 }
 
-int TCPAssignment::lookup_rseq(struct socket_fd *s, uint32_t seq_num)
+void TCPAssignment::print_rseq(struct socket_fd *s)
 {
-	int i;
-	for(i = 0 ; i < s->rseq_len ; i ++)
-	{
-		if(s->rseq[(s->rseq_start + i) % WINDOW_NUM] == seq_num)
-			return (s->rseq_start + i) % WINDOW_NUM;
-	}
-	return -1;
+    printf("[[print_rseq]]\n");
+    int i;
+    for(i = 0 ; i < s->rseq_len ; i ++)
+    {
+        int j = (s->rseq_start + i) % WINDOW_NUM;
+        printf("rseq[%d] = %u , rlen[%d] = %u\n", i, s->rseq[j], i, s->rlen[j]);
+    }
 }
 
-bool TCPAssignment::write_rbuf(struct socket_fd *s, uint8_t* buf, uint16_t len, int seq_num)
+int TCPAssignment::lookup_rseq(struct socket_fd *s, uint32_t seq_num)
 {
-	if(lookup_rseq(s, seq_num) == -1)
-		return true;
-	int from = (s->rbuf_start + seq_num - s->rseq[s->rseq_start]) % WINDOW_SIZE;
+	int i, j;
+	for(i = 0 ; i < s->rseq_len ; i ++)
+	{
+        j = (s->rseq_start + i) % WINDOW_NUM;
+		if(s->rseq[j] == seq_num)
+        {
+            if(s->rlen[j] != 0)
+			    return j;
+            if(s->rlen[j] == 0);
+                return -(j + 1);
+            printf("lookup_resq : negative len found\n");
+            return -WINDOW_NUM;
+        }
+	}
+	return WINDOW_NUM;
+}
+
+bool TCPAssignment::write_rwin(struct socket_fd *s, uint8_t* buf, uint16_t len, uint32_t seq_num)
+{
+    int from = s->rwin_start;
+    if(seq_num < USHRT_MAX && s->rseq[s->rseq_start] > UINT_MAX - USHRT_MAX)
+        from += UINT_MAX - s->rseq[s->rseq_start] + 1 + seq_num;
+    else
+        from += seq_num - s->rseq[s->rseq_start];
+    from %= WINDOW_SIZE;
 	if(from + (int)len >= WINDOW_SIZE)
 	{
-		if(from <= s->rbuf_start || ((int)len - WINDOW_SIZE + from > s->rbuf_start))
+        /*printf("write_rwin-flag1\n");
+		if(from <= s->rwin_start)
+        {
+            printf("false case1\n");
+            return false;
+        }
+        else if((int)len - WINDOW_SIZE + from > s->rwin_start)
+        {
+            printf("false case2\n");
 			return false;
-		memcpy(s->rbuf + from, buf, WINDOW_SIZE - from);
-		memcpy(s->rbuf, buf + WINDOW_SIZE - from, (int)len - WINDOW_SIZE + from);
+        }*/
+        //if(from <= s->rwin_start || ((int)len - WINDOW_SIZE + from > s->rwin_start))
+		//	return false;
+
+		memcpy(s->rwin + from, buf, WINDOW_SIZE - from);
+		memcpy(s->rwin, buf + WINDOW_SIZE - from, (int)len - WINDOW_SIZE + from);
 	}
 	else
 	{
-		if(from <= s->rbuf_start && from+(int)len > s->rbuf_start)
+        printf("write_rwin-flag2\n");
+		if(from < s->rwin_start && from+(int)len >= s->rwin_start)
 			return false;
-		memcpy(s->rbuf + from, buf, len);
+		memcpy(s->rwin + from, buf, len);
 	}
 	return true;
 }
 
-void TCPAssignment::store_rseq(struct socket_fd *s, uint32_t seq_num, uint16_t len)
+bool TCPAssignment::store_rseq(struct socket_fd *s, uint32_t seq_num, uint16_t len)
 {
-	if(lookup_rseq(s, seq_num) == -1)
-		return;
-	s->rseq[(s->rseq_start + s->rseq_len + 1) % WINDOW_NUM] = seq_num;
-	s->rlen[(s->rseq_start + s->rseq_len + 1) % WINDOW_NUM] = len;
+    int n = lookup_rseq(s, seq_num);
+	if(n < WINDOW_NUM && n >= 0)
+    {
+        printf("store_rseq-already_exist\n");
+		return false;
+    }
+    printf("store_rseq : new store with seq=%u , len=%u\n", seq_num, (uint32_t)len);
+    if(s->rseq_len == 0)
+    {
+        printf("store_rseq : len 0 case\n");
+	    s->rseq[s->rseq_start] = seq_num;
+	    s->rlen[s->rseq_start] = len;
+	    s->rseq_len ++;
+        return true;
+    }
+
+    int i, j, i2, j2, j3;
+	for(i = 0 ; i < s->rseq_len ; i ++)
+	{
+        j = (s->rseq_start + i) % WINDOW_NUM;
+		if(s->rseq[j] == seq_num)
+        {
+            if(s->rlen[j] == 0)
+			{
+                for(i2 = s->rseq_len - 1 ; i2 >= i + 1 ; i2 --)
+                {
+                    j2 = (s->rseq_start + i2) % WINDOW_NUM;
+                    j3 = (j2 + 1) % WINDOW_NUM;
+                    s->rseq[j3] = s->rseq[j2];
+                    s->rlen[j3] = s->rlen[j2];
+                }
+                j2 = (j + 1) % WINDOW_NUM;
+                s->rseq[j2] = seq_num;
+                s->rlen[j2] = len;
+                s->rseq_len ++;
+            }
+            printf("store_rseq : exist same seq, len 0 case\n");
+            return true;
+        }
+        if(s->rseq[j] > seq_num)
+        {
+            if((int)(s->rseq[j]) < (int)seq_num)
+                continue;
+            if(i == 0)
+            {
+                printf("store_rseq : surprize case\n");
+                return false;
+            }
+            for(i2 = s->rseq_len - 1 ; i2 >= i ; i2 --)
+            {
+                j2 = (s->rseq_start + i2) % WINDOW_NUM;
+                j3 = (j2 + 1) % WINDOW_NUM;
+                s->rseq[j3] = s->rseq[j2];
+                s->rlen[j3] = s->rlen[j2];
+            }
+            s->rseq[j] = seq_num;
+            s->rlen[j] = len;
+            s->rseq_len ++;
+            printf("store_rseq : insert case\n");
+            return true;
+        }
+	}
+    j = (s->rseq_start + s->rseq_len) % WINDOW_NUM;
+    s->rseq[j] = seq_num;
+	s->rlen[j] = len;
 	s->rseq_len ++;
+    //printf("store_rseq : append case\n");
+    return true;
 }
 
-bool TCPAssignment::store_recv(struct socket_fd *s, uint8_t* payload, uint16_t len, int seq_num)
+bool TCPAssignment::store_recv(struct socket_fd *s, uint8_t* payload, uint16_t len, uint32_t seq_num)
 {
 	if(s->rseq_len == WINDOW_NUM)
+    {
+        printf("store_recv-rseq full\n");
 		return false;
-	if(!write_rbuf(s, payload, len, seq_num))
+    }
+    if(store_rseq(s, seq_num, len))
+    {
+	    if(!write_rwin(s, payload, len, seq_num))
+	    {
+            printf("store_recv-rwin full\n");
+	        return false;
+        }
+    }
+
+    
+	/*
+    if(readable <= 0)
+	{
+		printf("store_recv : readable <= 0 case\n");
 		return false;
-	store_rseq(s, seq_num, len);
+	}
+    */
+    if(len > 0)
+    {
+        printf("eval_ACK result = %u\n", eval_ACK(s));
+
+        if(s->ack < USHRT_MAX && s->rseq[s->rseq_start] > UINT_MAX - USHRT_MAX)
+            len = UINT_MAX - s->rseq[s->rseq_start] + 1 + s->ack;
+        else
+            len = s->ack - s->rseq[s->rseq_start];
+        move_rwin(s, len);
+        printf("after control rseq, ");
+        print_rseq(s);
+    }
 	return true;
 }
 
-int TCPAssignment::get_recv(struct socket_fd *s, uint8_t *buf, int len)
+int TCPAssignment::read_rbuf(struct socket_fd *s, uint8_t *buf, int len)
 {
-	if(s->rbuf_start + len >= WINDOW_SIZE)
+    if(s->rbuf_start + len >= RBUF_SIZE)
 	{
-		memcpy(buf, s->rbuf + s->rbuf_start, WINDOW_SIZE - s->rbuf_start);
-		memcpy(buf + WINDOW_SIZE - s->rbuf_start, s->rbuf, len - WINDOW_SIZE + s->rbuf_start);
-		s->rbuf_start += len - WINDOW_SIZE;
+		memcpy(buf, s->rbuf + s->rbuf_start, RBUF_SIZE - s->rbuf_start);
+		memcpy(buf + RBUF_SIZE - s->rbuf_start, s->rbuf, len - RBUF_SIZE + s->rbuf_start);
+		s->rbuf_start += len - RBUF_SIZE;
+        s->rbuf_len -= len;
 		if(s->rbuf_start < 0)
 		{
-			printf("get_recv : s->rbuf_start became negative\n");
+			printf("read_rbuf : s->rbuf_start became negative\n");
 			return -1;
 		}
 	}
@@ -562,52 +695,136 @@ int TCPAssignment::get_recv(struct socket_fd *s, uint8_t *buf, int len)
 	{
 		memcpy(buf, s->rbuf + s->rbuf_start, len);
 		s->rbuf_start += len;
+        s->rbuf_len -= len;
 	}
-	int seq, next_seq = s->rseq[s->rseq_start] + len , i, pre_len = s->rseq_len;
-	for(i = 0 ; i < pre_len ; i ++)
+    return len;
+}
+
+bool TCPAssignment::write_rbuf(struct socket_fd *s, uint8_t* buf, uint16_t len)
+{
+	int from = (s->rbuf_start + s->rbuf_len) % RBUF_SIZE;
+	if(from + (int)len >= RBUF_SIZE)
+	{
+        printf("write_rbuf-flag1\n");
+		if(from <= s->rbuf_start || ((int)len - RBUF_SIZE + from > s->rbuf_start))
+			return false;
+		memcpy(s->rbuf + from, buf, RBUF_SIZE - from);
+		memcpy(s->rbuf, buf + RBUF_SIZE - from, (int)len - RBUF_SIZE + from);
+	}
+	else
+	{
+        printf("write_rbuf-flag2\n");
+		if(from < s->rbuf_start && from+(int)len >= s->rbuf_start)
+			return false;
+		memcpy(s->rbuf + from, buf, len);
+	}
+    s->rbuf_len += len;
+	return true;
+}
+
+int TCPAssignment::move_rwin(struct socket_fd *s, int len)
+{
+	if(s->rwin_start + len >= WINDOW_SIZE)
+	{   
+        printf("move_rwin flag1\n");
+        write_rbuf(s, s->rwin + s->rwin_start, WINDOW_SIZE - s->rwin_start);
+        write_rbuf(s, s->rwin, len - WINDOW_SIZE + s->rwin_start);
+		//memcpy(buf, s->rwin + s->rwin_start, WINDOW_SIZE - s->rwin_start);
+		//memcpy(buf + WINDOW_SIZE - s->rwin_start, s->rwin, len - WINDOW_SIZE + s->rwin_start);
+		s->rwin_start -= WINDOW_SIZE - len;
+		if(s->rwin_start < 0)
+		{
+			printf("move_rwin : s->rwin_start became negative\n");
+			return -1;
+		}
+	}
+	else
+	{
+        printf("move_rwin flag2\n");
+        write_rbuf(s, s->rwin + s->rwin_start, len);
+		//memcpy(buf, s->rwin + s->rwin_start, len);
+		s->rwin_start += len;
+	}
+    printf("before control rseq, ");
+    print_rseq(s);
+	uint32_t seq, next_seq = s->rseq[s->rseq_start] + len , i, pre_len = s->rseq_len;
+    for(i = 0 ; i < pre_len ; i ++)
 	{
 		seq = s->rseq[s->rseq_start];
 		if(seq < next_seq)
 		{
+            printf("move_rwin flag1\n");
 			s->rseq_start = (s->rseq_start + 1) % WINDOW_NUM;
 			s->rseq_len -= 1;
 		}
 		else if(seq == next_seq)
-			return len;
+        {
+            return len;
+        }
 		else
 		{
-			s->rseq_start = (s->rseq_start - 1) % WINDOW_NUM;
-			s->rseq_len += 1;
-			s->rseq[s->rseq_start] = next_seq;	//	artificial seq , maybe cannot receive
-			s->rlen[s->rseq_start] = seq - next_seq;
-			return len;
+            if(s->rseq_len == 0/* || (next_seq < 2048*MSS && seq > 2048*MSS)*/)
+            {
+                printf("move_rwin flag2\n");
+                s->rseq_start = (s->rseq_start + 1) % WINDOW_NUM;
+                s->rseq_len -= 1;
+            }
+            else if(next_seq < 2048*MSS && seq > 2048*MSS)
+            {
+                printf("move_rwin flag3\n");
+                s->rseq_start = (s->rseq_start + 1) % WINDOW_NUM;
+                s->rseq_len -= 1;
+            }
+            else
+            {
+			    s->rseq_start = (s->rseq_start - 1) % WINDOW_NUM;
+			    s->rseq_len += 1;
+			    s->rseq[s->rseq_start] = next_seq;	//	artificial seq , maybe cannot receive
+            
+                s->rlen[s->rseq_start] = UINT_MAX - seq + 1 + next_seq;
+
+                printf("move_rwin : next_seq < seq case , crazy case, calculated len = %u\n", s->rlen[s->rseq_start]);
+
+			    return len;
+            }
 		}
 	}
-	if(s->rseq[(s->rseq_start - 1) % WINDOW_NUM] + s->rlen[(s->rseq_start - 1) % WINDOW_NUM] != next_seq)
+	if(s->rseq[(s->rseq_start + s->rseq_len- 1 + WINDOW_NUM) % WINDOW_NUM] + s->rlen[(s->rseq_start + s->rseq_len - 1 + WINDOW_NUM) % WINDOW_NUM] != next_seq)
 	{
-		printf("get_recv : next_seq not equal error\n");
-		return -1;
+		printf("move_rwin : next_seq not equal error\n");
+		printf("seq=%u, len=%u, next_seq=%u\n", s->rseq[(s->rseq_start + s->rseq_len- 1 + WINDOW_NUM) % WINDOW_NUM], s->rlen[(s->rseq_start + s->rseq_len - 1 + WINDOW_NUM) % WINDOW_NUM], next_seq);
+        printf("rseq_start = %d, rseq_len = %d\n", s->rseq_start, s->rseq_len);
+        print_rseq(s);
+        return -1;
 	}
-	s->rseq_start = (s->rseq_start - 1) % WINDOW_NUM;
+    printf("move_rwin : seq=%u, len=%u, next_seq=%u\n", s->rseq[(s->rseq_start + s->rseq_len- 1 + WINDOW_NUM) % WINDOW_NUM], s->rlen[(s->rseq_start + s->rseq_len - 1 + WINDOW_NUM) % WINDOW_NUM], next_seq);
+	printf("rseq_start = %d, rseq_len = %d\n", s->rseq_start, s->rseq_len);
+
+    s->rseq_start = (s->rseq_start - 1 + WINDOW_NUM) % WINDOW_NUM;
+	s->rseq[s->rseq_start + s->rseq_len] = next_seq;	//	predictive seq , maybe receive
+	s->rlen[s->rseq_start + s->rseq_len] = 0;
 	s->rseq_len += 1;
-	s->rseq[s->rseq_start] = next_seq;	//	predictive seq , maybe receive
-	s->rlen[s->rseq_start] = 0;
-	return len;
+    return len;
 }
 
-void TCPAssignment::eval_ACK(struct socket_fd *s)
+uint32_t TCPAssignment::eval_ACK(struct socket_fd *s)
 {	
-	int i, seq, len, pre_seq = -1, pre_len = -1;
-	for(i = 0 ; i < s->rseq_len ; i++)
+	uint32_t i, seq, len, pre_seq, pre_len;
+	for(i = 0 ; i < (uint32_t)s->rseq_len ; i++)
 	{
+        if(i > 0)
+        {
+            pre_seq = seq;
+            pre_len = len;
+        }
 		seq = s->rseq[(s->rseq_start + i) % WINDOW_NUM];
-		len = (int)s->rlen[(s->rseq_start + i) % WINDOW_NUM];
-		if(pre_seq >= 0)
+		len = (uint32_t)s->rlen[(s->rseq_start + i) % WINDOW_NUM];
+		if(i > 0)
 		{
 			if(seq < pre_seq + pre_len)
 			{
 				printf("eval_ACK : error in rseq or rlen array\n");
-				return;
+				return 0;
 			}
 			else if(seq == pre_seq + pre_len)
 			{
@@ -618,11 +835,17 @@ void TCPAssignment::eval_ACK(struct socket_fd *s)
 				break;
 		}
 	}
-	if(pre_seq == -1)
+	if(i == 0)
 		s->ack = (s->ack < seq + len) ? seq + len : s->ack;
 	else
-		s->ack = (s->ack < pre_seq + pre_len) ? pre_seq + pre_len : s->ack;
-	
+    {
+        printf("eval_ACK : s->ack = %u , pre_seq = %u, pre_len = %u, pre_seq+pre_len = %u\n", s->ack, pre_seq, pre_len, pre_seq + pre_len);
+        if((int)s->ack < 0 && (int)(pre_seq + pre_len)>= 0)
+            s->ack = pre_seq + pre_len;
+		else
+            s->ack = (s->ack < (pre_seq + pre_len)) ? (pre_seq + pre_len) : s->ack;
+    }
+    return s->ack;
 }
 
 TCPAssignment::socket_fd* TCPAssignment::get_socket(int pid, int fd)
@@ -647,9 +870,11 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
 	soc->is_passive = false;
 	soc->status = 0;
 
-    soc->rbuf_start = 0;
+    soc->rwin_start = 0;
     soc->rseq_start = 0;
     soc->rseq_len = 0;
+    soc->rbuf_start = 0;
+    soc->rbuf_len = 0;
 
 	soc->read_blocked = false;
 
@@ -714,7 +939,6 @@ void TCPAssignment::manage_accept_queue(socket_fd* soc)
 
 	*(acc_info->addrlen) = sizeof(sockaddr_in);
 	memcpy(acc_info->addr, &s->addr, *(acc_info->addrlen));
-	//printf("family was %d , INET is %d\n", ((sockaddr_in*)addr)->sin_family, AF_INET);
     returnSystemCall(acc_info->syscallUUID, s->fd);
     free(acc_info);
 }
@@ -871,10 +1095,18 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 
 void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int fd, void *buf, size_t count)
 {
+    printf("syscall_read called\n");
+    if(count == 0)
+    {
+        returnSystemCall(syscallUUID, 0);
+        return;
+    }
     socket_fd* s = get_socket(pid, fd);
-    size_t readable, read;
-	if(s->rseq_len == 0)
-	{
+    size_t readable;
+	//if(s->rseq_len == 0 || (s->rseq_len == 1 && (s->rlen[s->rseq_start] == 0)))
+	if(s->rbuf_len == 0)
+    {
+        printf("read-block\n");
 		readable = 0;	//	maybe can be deleted
 		s->read_blocked = true;
 		s->readUUID = syscallUUID;
@@ -883,20 +1115,23 @@ void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int fd, void *buf, s
 	}
 	else
 	{
-		readable = s->ack - s->rseq[s->rseq_start];
+        printf("read-now\n");
+		readable = s->rbuf_len;
 		if(readable <= 0)
 		{
 			printf("syscall_read : readable <= 0 case\n");
 			return;
 		}
-		read = (readable > count) ? count : readable;
-		returnSystemCall(syscallUUID, get_recv(s, (uint8_t*)buf, (int)count));
+		size_t read = ((int)s->rbuf_len > (int)count) ? count : s->rbuf_len;
+        //printf("syscall_read : %d %d %d\n", s->rbuf_l
+		returnSystemCall(syscallUUID, read_rbuf(s, (uint8_t*)buf, (int)read));
 		return;
 	}	
 }
 
 void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, const void *buf, size_t count)
 {
+    printf("syscall_write called\n");
     struct socket_fd *soc = get_socket(pid, fd);
 
     uint32_t src_ip = soc->src_ip;
@@ -927,6 +1162,7 @@ void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, const void 
 
 void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 {
+    //printf("syscall_close called\n");
 	socket_fd* soc = get_socket(pid, fd);
 	int S = soc->status;
 	switch(S)
@@ -951,7 +1187,7 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 				uint32_t src_ip = soc->src_ip, des_ip = soc->des_ip;
 				uint16_t src_port = soc->src_port, des_port = soc->des_port;
 			
-				uint32_t seq_num = (soc->seq)++, ack_num = 0;
+				uint32_t seq_num = (soc->seq)++, ack_num = soc->ack;
 				seq_num = htonl(seq_num);
 
 				uint8_t head_len = 5<<4 , flag = 0x1;	//	FIN
@@ -966,7 +1202,7 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 				uint32_t src_ip = soc->src_ip, des_ip = soc->des_ip;
 				uint16_t src_port = soc->src_port, des_port = soc->des_port;
 			
-				uint32_t seq_num = (soc->seq)++, ack_num = 0;
+				uint32_t seq_num = (soc->seq)++, ack_num = soc->ack;
 				seq_num = htonl(seq_num);
 
 				uint8_t head_len = 5<<4 , flag = 0x1;	//	FIN
