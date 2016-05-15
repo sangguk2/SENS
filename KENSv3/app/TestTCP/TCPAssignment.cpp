@@ -13,6 +13,7 @@
 #include <E/Networking/E_NetworkUtil.hpp>
 #include "TCPAssignment.hpp"
 #include <limits.h>
+#include <unistd.h>
 
 namespace E
 {
@@ -31,13 +32,6 @@ TCPAssignment::~TCPAssignment()
 
 }
 
-
-
-static TCPAssignment::socket_fd socket_head, socket_tail;
-
-static TCPAssignment::bound_port port_head, port_tail;
-
-
 void TCPAssignment::initialize()
 {
     socket_head.prev = NULL;
@@ -49,6 +43,12 @@ void TCPAssignment::initialize()
     port_head.next = &port_tail;
     port_tail.prev = &port_head;
     port_tail.next = NULL;
+
+    if(pthread_mutex_init(&fd_lock, NULL) != 0)
+    {
+        perror("init mutex :");
+        exit(1);
+    }
 }
 
 void TCPAssignment::finalize()
@@ -805,8 +805,8 @@ TCPAssignment::socket_fd* TCPAssignment::get_socket(int pid, int fd)
 TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid, int domain, int protocol)
 {
 	socket_fd *soc = (socket_fd*)malloc(sizeof(socket_fd));
-	soc->fd = createFileDescriptor(pid);
-   	soc->domain = domain;
+
+    soc->domain = domain;
    	soc->pid = pid;
    	soc->protocol = protocol;
     soc->syscallUUID = syscallUUID;
@@ -818,8 +818,18 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
     soc->rseq_len = 0;
     soc->rbuf_start = 0;
     soc->rbuf_len = 0;
-
 	soc->read_blocked = false;
+
+    soc->swin_start = 0;
+    soc->swin_num = WINDOW_SIZE / MSS;
+    soc->sbuf_end = 0;
+    soc->sbuf_loc = 0;
+    soc->sending = false;
+    if(pthread_mutex_init(&soc->send_lock, NULL) != 0)
+    {
+        perror("create_socket - init mutex :");
+        exit(1);
+    }
 
 	soc->src_ip = 0;
 	soc->des_ip = 0;
@@ -844,22 +854,67 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
 	soc->accept_queue.tail.prev = &soc->accept_queue.head;
 	soc->accept_queue.tail.next = NULL;
 
+	pthread_mutex_lock(&fd_lock);
+    
+    soc->fd = createFileDescriptor(pid);
+
 	soc->prev = socket_tail.prev;
 	soc->next = &socket_tail;
 	soc->prev->next = soc;
 	socket_tail.prev = soc;
+    
+    /*
+    struct socket_fd *trav;
+    int fd1, fd2 = 2;
+    bool inserted = false;
+    for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
+    {
+        if(trav->pid != soc->pid)
+            continue;
+        fd1 = fd2;
+        fd2 = trav->fd;
+        if(fd2 < fd1 + 1)
+        {
+            printf("fild descripter sorting error\n");
+            exit(0);
+        }
+        if(fd2 > fd1 + 1)
+        {
+            soc->fd = fd1 + 1;
+            soc->next = trav;
+            soc->prev = trav->prev;
+            trav->prev->next = soc;
+            trav->prev = soc;
+            inserted = true;
+            break;
+        }
+    }
+    if(!inserted)
+    {
+        soc->fd = fd2 + 1;
+        soc->prev = trav->prev;
+        soc->next = trav;
+        soc->prev->next = soc;
+        trav->prev = soc;
+    }
+    */
 
-	return soc;
+   	pthread_mutex_unlock(&fd_lock);
+	
+    return soc;
 }
 
 void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int protocol)
 {
 	socket_fd* soc = create_socket(syscallUUID, pid, domain, protocol);
-	returnSystemCall(syscallUUID, soc->fd);
+	
+    //printf("syscall_socket is called with pid = %d , allocated fd = %d\n", pid, soc->fd);
+    returnSystemCall(syscallUUID, soc->fd);
 }
 
 void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
 {
+    //printf("syscall_listen is called with pid = %d , fd = %d\n", pid, fd);
 	socket_fd *f = get_socket(pid, fd);
 	f->syn_queue.current_size = 0;
 	f->syn_queue.max_size = backlog;
@@ -888,6 +943,7 @@ void TCPAssignment::manage_accept_queue(socket_fd* soc)
 
 void TCPAssignment::syscall_accept(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t *addrlen)
 {
+    //printf("syscall_accept is called with pid = %d , fd = %d\n", pid, fd);
     socket_fd* soc = get_socket(pid, fd);
 
     queue_node* newq = (queue_node*)malloc(sizeof(queue_node));
@@ -904,7 +960,6 @@ void TCPAssignment::syscall_accept(UUID syscallUUID, int pid, int fd, sockaddr *
 
 void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
-    //printf("syscall_bind called\n");
     socket_fd *f = get_socket(pid, fd);
     if(!f)
     {
@@ -956,6 +1011,7 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
 
 void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
+    //printf("syscall_connect is called with pid = %d, fd = %d\n", pid, fd);
  	socket_fd *f = get_socket(pid, fd);
 
 	if(!f)
@@ -966,7 +1022,7 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 	}
 	if(f->status != 0 && f->status != 1)
 	{
-		printf("connect : wrong socket status\n");
+		printf("connect : wrong socket status. status = %d\n", f->status);
 		returnSystemCall(syscallUUID, -1);
 		return;
 	}
@@ -1072,9 +1128,9 @@ void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int fd, void *buf, s
 
 void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, const void *buf, size_t count)
 {
-    //printf("syscall_write called\n");
+    //printf("syscall_write called with count = %lu\n", count);
     struct socket_fd *soc = get_socket(pid, fd);
-
+    /*
     uint32_t src_ip = soc->src_ip;
 	uint32_t des_ip = soc->des_ip;
 	uint16_t src_port = soc->src_port;
@@ -1084,20 +1140,26 @@ void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, const void 
 	uint8_t flag = 0x10;
 	uint16_t window = htons(WINDOW_SIZE);
 	uint16_t urg_ptr = 0;
+    */
     uint8_t *from = (uint8_t*)buf;
     
     size_t i = 0;
     while(i < count)
     {
         uint32_t seq_num = soc->seq;
-	    seq_num = htonl(seq_num);
         size_t templen = (count - i > MSS)?MSS:(count - i);
-        ack_num = soc->ack;
-        ack_num = htonl(ack_num);
-	    writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr, from+i, templen);
-        soc->seq += templen;
+        //printf("syscall_write : sent seq_num = %u\n", soc->seq);
+
+        add_sbuf(soc, from + i, templen, seq_num);
+
+        uint32_t sub = UINT_MAX - seq_num;
+        if(templen > sub)
+            soc->seq = templen - sub - 1;
+        else
+            soc->seq += templen;
         i += templen;
     }
+    try_send(soc);
     returnSystemCall(syscallUUID, count);
 }
 
@@ -1185,25 +1247,60 @@ void TCPAssignment::syscall_getpeername(UUID syscallUUID, int pid, int sockfd, s
         returnSystemCall(syscallUUID, -1);
         return;
     }
-    /*if(sizeof(sockaddr_in) > *addrlen) {
-        returnSystemCall(syscallUUID, -1);
-        return;
-    }*/
     ((sockaddr_in*)addr)->sin_addr.s_addr = soc->des_ip;
     ((sockaddr_in*)addr)->sin_family=AF_INET;
     ((sockaddr_in*)addr)->sin_port = soc->des_port;
     returnSystemCall(syscallUUID, 0);
 }
 
+void TCPAssignment::add_sbuf(struct socket_fd* s, uint8_t *payload, uint32_t size, uint32_t seq)
+{
+    int next = (s->sbuf_end + 1) % SBUF_NUM;
+    /*if(next == s->swin_start)
+    {
+        printf("add_sbuf : sbuf is full\n");
+        return;
+    }*/
+    struct sending *pac = &s->sbuf[s->sbuf_end];
+    memcpy(pac->payload, payload, size);
+    pac->size = size;
+    pac->seq = seq;
+    s->sbuf_end = next;
+}
 
+void TCPAssignment::try_send(struct socket_fd* s)
+{
+    if(pthread_mutex_trylock(&s->send_lock) != 0)
+        return;
+    
+    uint32_t src_ip = s->src_ip;
+	uint32_t des_ip = s->des_ip;
+	uint16_t src_port = s->src_port;
+	uint16_t des_port = s->des_port;
+	uint8_t head_len = 5<<4;
+	uint8_t flag = 0x10;
+	uint16_t window = htons(WINDOW_SIZE);
+	uint16_t urg_ptr = 0;
+    
+    while((s->sbuf_loc != s->sbuf_end) && (s->sbuf_loc != (s->swin_start + s->swin_num) % SBUF_NUM))
+    {
+        struct sending pac = s->sbuf[s->sbuf_loc];
+        uint32_t seq_num = pac.seq;
+        uint32_t ack_num = s->ack;
+        size_t size = pac.size;
 
-
+        //printf("try_send : size = %lu, seq = %u\n", size, seq_num);
+	    seq_num = htonl(seq_num);
+        ack_num = htonl(ack_num);
+	    writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr, pac.payload, size);
+        
+        s->sbuf_loc = (s->sbuf_loc + 1) % SBUF_NUM;
+        s->swin_start = (s->swin_start + 1) % SBUF_NUM; //  temp for reliable transfer
+    }
+    pthread_mutex_unlock(&s->send_lock);
+}
 
 void TCPAssignment::enqueue(queue* q, queue_node* enter){
-	/*if(q->current_size >= q->max_size){
-		printf("queue_size is already full\n");
-		return;
-	}*/
 	enter->prev = q->tail.prev;
 	enter->next = &q->tail;
 	enter->prev->next = enter;
@@ -1215,10 +1312,7 @@ void TCPAssignment::enqueue(queue* q, queue_node* enter){
 TCPAssignment::queue_node* TCPAssignment::dequeue(queue* q){
 	queue_node* ret = q->head.next;
 	if(ret == &q->tail)
-	{
-		//printf("dequeue : empty queue\n");
 		return NULL;
-	}
 	q->head.next = ret->next;
 	ret->next->prev = &q->head;
 	ret->prev = NULL;
@@ -1265,8 +1359,6 @@ int TCPAssignment::free_socket(int pid, int fd)
 		return -1;
 	}
 
-	removeFileDescriptor(pid, fd);
-
 	bound_port* trav;
 	for(trav = port_head.next ; trav != &port_tail ; trav = trav->next)
 	{
@@ -1281,10 +1373,16 @@ int TCPAssignment::free_socket(int pid, int fd)
 		}
 	}
 
+    pthread_mutex_lock(&fd_lock);
+
+	removeFileDescriptor(pid, fd);
+
     socket_fd* pr = soc->prev;
     pr->next = soc->next;
     soc->next->prev = pr;
     free(soc);
+
+    pthread_mutex_unlock(&fd_lock);
 
 	return 0;
 }

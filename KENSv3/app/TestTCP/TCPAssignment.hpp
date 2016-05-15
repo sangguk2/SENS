@@ -18,10 +18,13 @@
 
 #include <E/E_TimerModule.hpp>
 
+#include <pthread.h>
+
 #define MSS 512
 #define WINDOW_NUM 100
 #define WINDOW_SIZE (MSS*WINDOW_NUM)
 #define RBUF_SIZE 300000
+#define SBUF_NUM 1000
 
 namespace E
 {
@@ -29,15 +32,6 @@ namespace E
 class TCPAssignment : public HostModule, public NetworkModule, public SystemCallInterface, private NetworkLog, private TimerModule
 {
 private:
-
-private:
-	virtual void timerCallback(void* payload) final;
-
-public:
-	TCPAssignment(Host* host);
-	virtual void initialize();
-	virtual void finalize();
-	virtual ~TCPAssignment();
 	
 	struct socket_fd;
 
@@ -62,6 +56,13 @@ public:
 		queue_node tail;
 	};
 
+	struct sending
+	{
+		uint8_t payload[MSS];
+		uint32_t size;
+		uint32_t seq;	//	host order
+	};
+
     struct socket_fd
 	{
         int fd;
@@ -84,6 +85,16 @@ public:
 		uint8_t rbuf[RBUF_SIZE];
 		int rbuf_start;
 		int rbuf_len;
+
+		struct sending sbuf[SBUF_NUM];
+		//int sbuf_start;
+		int swin_start;	//	= sbuf_start
+		int swin_num;
+		int sbuf_end;
+		int sbuf_loc;	//	sending location
+		
+		bool sending;
+		pthread_mutex_t send_lock;
 		
 		bool read_blocked;
 		UUID readUUID;
@@ -128,8 +139,10 @@ public:
 	virtual bool store_recv(struct socket_fd *s, uint8_t* payload, uint16_t len, uint32_t seq_num);
 	virtual int read_rbuf(struct socket_fd *s, uint8_t *buf, int len);
 	virtual bool write_rbuf(struct socket_fd *s, uint8_t *buf, uint16_t len);
-
 	virtual uint32_t eval_ACK(struct socket_fd *s);
+
+	virtual void add_sbuf(struct socket_fd* s, uint8_t *payload, uint32_t size, uint32_t seq);
+	virtual void try_send(struct socket_fd *s);
 
 	virtual void syscall_socket(UUID syscallUUID, int pid, int domain, int protocol);
     virtual void syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen);
@@ -143,6 +156,19 @@ public:
 	virtual void syscall_getpeername(UUID syscallUUID, int pid, int sockfd, sockaddr *addr, socklen_t *addrlen);
 	
 	virtual void writePacket(uint32_t *src_ip, uint32_t *dst_ip, uint16_t *src_port, uint16_t *dst_port, uint32_t *seq_num, uint32_t *ack_num, uint8_t *head_len, uint8_t *flag, uint16_t *window_size, uint16_t *urg_ptr, uint8_t *payload = NULL, size_t size = 0);
+
+	struct socket_fd socket_head, socket_tail;
+	struct bound_port port_head, port_tail;
+	pthread_mutex_t fd_lock;
+
+private:
+	virtual void timerCallback(void* payload) final;
+
+public:
+	TCPAssignment(Host* host);
+	virtual void initialize();
+	virtual void finalize();
+	virtual ~TCPAssignment();
 
 protected:
 	virtual void systemCallback(UUID syscallUUID, int pid, const SystemCallParameter& param) final;
