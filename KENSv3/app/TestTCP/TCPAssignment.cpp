@@ -101,6 +101,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid, const SystemCallPa
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 {
+    //printf("packet Arrived with ");
 	uint8_t IHL;
 	packet->readData(14, &IHL, 1);
 	IHL = (IHL&0xF)*4;
@@ -145,6 +146,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 
 	if( SYN && ACK ) // 3hand shaking client to server 
 	{
+        printf("SYN && ACK\n");
 		socket_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
 		{
@@ -183,6 +185,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	}
 	else if( SYN ) // 3hand shaking server to client 
 	{
+        printf("SYN\n");
 		socket_fd* trav;
 		uint32_t cur_ip; 
 		uint16_t cur_port;
@@ -262,6 +265,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	}
 	else if( FIN )
 	{
+        printf("FIN\n");
 		int context = 0;
 		socket_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
@@ -326,7 +330,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 
 	else if( ACK )
 	{
-		//printf("recieved ACK\n");
+		//printf("ACK\n");
 		socket_fd* listen_soc;
 		socket_fd* trav;
 		queue* synq;
@@ -416,6 +420,10 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		{
 			context = 4;
 		}
+        else if(trav->status == 5)  //  CLOSE_WAIT
+        {
+            context = 5;
+        }
 		else if(trav->status == 6)	//	LAST_ACK
 		{
 			UUID id = trav->syscallUUID;
@@ -435,7 +443,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		else
 		{
 			context = 100;
-			printf("other case in ACK arrived");
+			printf("other case in ACK with status = %d\n", trav->status);
 		}
         
         if(tot_len > 0)
@@ -477,8 +485,104 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
         }
 		if(context != 2)
 		{
-			//	use ack
-		}
+            struct socket_fd *s = trav;
+            if(ack_num == s->rack)
+            {
+                if(((++(s->dup_cnt)) % 3 == 0) && (s->dup_cnt > 0))
+                {
+                    bool chance = isfull_sbuf(s), flag = true;
+                        
+                    int i;
+                    for(i = s->swin_start ; ; i = (i + 1) % SBUF_NUM)
+                    {
+                        if(i == s->sbuf_end)
+                        {
+                            if(chance)
+                                chance = false;
+                            else
+                                break;
+                        }
+
+                        struct sending *pac = &s->sbuf[i];
+/*                        uint32_t pred_ack, sub = UINT_MAX - pac->seq;
+                        if(pac->size > sub)
+                            pred_ack = pac->size - sub - 1;
+                        else
+                            pred_ack = pac->seq + pac->size;
+  */                      
+                        printf("3 dup loop : s->sbuf[%d]->seq = %u , duped ACK = %u\n", i, pac->seq, s->rack);
+                        if(pac->seq == s->rack)
+                        {
+                            printf("ACK : 3 dup ack - seq found!\n");
+                            s->sbuf_loc = i;
+                            s->swin_num /= 2;
+                            s->swin_num += 1;
+                            try_send(s);
+                            flag = false;
+                            break;
+                        }
+                    }
+                    if(i == s->sbuf_end && flag)
+                    {
+                        printf("ACK : 3 dup ack - not seq found\n");
+                    }
+                }
+            }
+            else
+            {
+                s->rack = ack_num;
+                s->dup_cnt = 1;
+            }
+
+            uint32_t first_seq = s->sbuf[s->swin_start].seq;
+		    if(ack_num < first_seq && !((ack_num < USHRT_MAX) && (first_seq > UINT_MAX - USHRT_MAX)))
+            {
+                printf("ACK : too small ack received, ack_num = %u, first_seq = %u, len = %u, swin_start = %d, sent = %d\n", ack_num, first_seq, s->sbuf[s->swin_start].size, s->swin_start, s->sbuf[s->swin_start].sent);
+                printf("next seq = %u, %u, %u\n", s->sbuf[s->swin_start + 1].seq, s->sbuf[s->swin_start + 2].seq, s->sbuf[s->swin_start +3].seq);
+                return;
+            }
+            printf("ACK : not small ack received, ack_num = %u, first_seq = %u, swin_start = %d\n", ack_num, first_seq, s->swin_start);
+            
+            bool chance = isfull_sbuf(s);
+            int i, end = s->sbuf_end;
+            for(i = s->swin_start ; ; i = (i + 1) % SBUF_NUM)
+            {
+                if(i == end)
+                {
+                    if(chance)
+                        chance = false;
+                    else
+                        break;
+                }
+                struct sending *pac = &s->sbuf[i];
+                uint32_t pred_ack, sub = UINT_MAX - pac->seq;
+                if(pac->size > sub)
+                    pred_ack = pac->size - sub - 1;
+                else
+                    pred_ack = pac->seq + pac->size;
+                //printf("pred_ack = %u\n", pred_ack);
+                if(((ack_num > pred_ack) && !((ack_num > UINT_MAX - USHRT_MAX) && (pred_ack < USHRT_MAX)))
+                || ((ack_num < pred_ack) && ((ack_num < USHRT_MAX) && (pred_ack > UINT_MAX - USHRT_MAX)))
+                || (ack_num == pred_ack))
+                {
+                    //printf("ack <= pred_ack case\n");
+                    pthread_mutex_unlock(&s->sbuf[s->swin_start].occ_lock);
+                    //printf("flag1\n");
+                    s->swin_start = (s->swin_start + 1) % SBUF_NUM;
+                    if(s->swin_num < 100)
+                        s->swin_num ++;
+                    unblock_write(s);
+                    //printf("flag2\n");
+                    try_send(s);
+                    //manage timer
+                }
+                else
+                {
+                    //printf("increasing swin_start loop : break with s->sbuf[%d]->seq = %u, pred_ack = %u\n", i, pac->seq, pred_ack);
+                    break;
+                }
+            }
+        }
 	}
 	else if( RST )
 	{
@@ -820,16 +924,26 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
     soc->rbuf_len = 0;
 	soc->read_blocked = false;
 
+    int i = SBUF_NUM;
+    while(--i >= 0)
+        pthread_mutex_init(&soc->sbuf[i].occ_lock, NULL);
+
     soc->swin_start = 0;
-    soc->swin_num = WINDOW_SIZE / MSS;
+    soc->swin_num = 1;
     soc->sbuf_end = 0;
     soc->sbuf_loc = 0;
-    soc->sending = false;
+    soc->rack = 0;
+    soc->dup_cnt = 0;
     if(pthread_mutex_init(&soc->send_lock, NULL) != 0)
     {
         perror("create_socket - init mutex :");
         exit(1);
     }
+
+    soc->whead.prev = NULL;
+    soc->whead.next = &soc->wtail;
+    soc->wtail.prev = &soc->whead;
+    soc->wtail.next = NULL;
 
 	soc->src_ip = 0;
 	soc->des_ip = 0;
@@ -1126,16 +1240,63 @@ void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int fd, void *buf, s
 	}	
 }
 
+void TCPAssignment::block_write(UUID syscallUUID, struct socket_fd *s, const void *buf, size_t len, size_t sent)
+{
+    writing *w = (writing*)malloc(sizeof(writing));
+    w->syscallUUID = syscallUUID;
+    w->buf = buf;
+    w->count = len;
+    w->sent = sent;
+    
+    w->prev = s->wtail.prev;
+    w->next = &s->wtail;
+    s->wtail.prev->next = w;
+    s->wtail.prev = w;
+}
+
+void TCPAssignment::unblock_write(struct socket_fd *s)
+{
+    if(s->whead.next == &s->wtail)
+    {
+        printf("unblock_write : there is no blocked syscall_write\n");
+        return;
+    }
+    //printf("unblock_write : blocked syscall_write exists\n");
+    struct writing *w = s->whead.next;
+    while(socket_write(w->syscallUUID, s, w->buf, w->count, w->sent, w))
+    {
+        struct writing *next = w->next;
+        next->prev = &s->whead;
+        w->prev->next = next;
+        free(w);
+        if(next == &s->wtail)
+            break;
+        w = next;
+    }
+}
+
 void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, const void *buf, size_t count)
 {
-    //printf("syscall_write called with count = %lu\n", count);
-    struct socket_fd *soc = get_socket(pid, fd);
+    printf("syscall_write called with syscallUUID = %lu\n", syscallUUID);
+    socket_fd *s = get_socket(pid, fd); 
+    if(s->whead.next != &s->wtail)
+    {
+        block_write(syscallUUID, s, buf, count, 0);
+        return;
+    }
+
+    socket_write(syscallUUID, s, buf, count, 0, NULL);
+}
+
+bool TCPAssignment::socket_write(UUID syscallUUID, struct socket_fd *soc, const void *buf, size_t count, size_t sent, struct writing *w)
+{   
+    //printf("socket_write called with syscallUUID = %lu\n", syscallUUID);
+        
     /*
     uint32_t src_ip = soc->src_ip;
 	uint32_t des_ip = soc->des_ip;
 	uint16_t src_port = soc->src_port;
 	uint16_t des_port = soc->des_port;
-	uint32_t ack_num;
 	uint8_t head_len = 5<<4;
 	uint8_t flag = 0x10;
 	uint16_t window = htons(WINDOW_SIZE);
@@ -1144,14 +1305,32 @@ void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, const void 
     uint8_t *from = (uint8_t*)buf;
     
     size_t i = 0;
+    
+    //returnSystemCall(syscallUUID, count);
     while(i < count)
     {
         uint32_t seq_num = soc->seq;
+        //uint32_t ack_num = soc->ack;
         size_t templen = (count - i > MSS)?MSS:(count - i);
         //printf("syscall_write : sent seq_num = %u\n", soc->seq);
 
-        add_sbuf(soc, from + i, templen, seq_num);
-
+        if(!add_sbuf(soc, from + i, templen, seq_num))
+        {
+            if(w)
+            {
+                w->buf = from + i;
+                w->count = count - i;
+                w->sent = i;
+                return false;
+            }
+            block_write(syscallUUID, soc, from + i, count - i, i);
+            return false;
+        }
+        /*  
+	    seq_num = htonl(seq_num);
+        ack_num = htonl(ack_num);
+	    writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr, from + i, templen);
+        */
         uint32_t sub = UINT_MAX - seq_num;
         if(templen > sub)
             soc->seq = templen - sub - 1;
@@ -1160,7 +1339,9 @@ void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, const void 
         i += templen;
     }
     try_send(soc);
-    returnSystemCall(syscallUUID, count);
+    returnSystemCall(syscallUUID, count + sent);
+    printf("syscall_write returns with syscallUUID = %lu\n", syscallUUID);
+    return true;
 }
 
 void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
@@ -1253,26 +1434,50 @@ void TCPAssignment::syscall_getpeername(UUID syscallUUID, int pid, int sockfd, s
     returnSystemCall(syscallUUID, 0);
 }
 
-void TCPAssignment::add_sbuf(struct socket_fd* s, uint8_t *payload, uint32_t size, uint32_t seq)
+bool TCPAssignment::add_sbuf(struct socket_fd* s, uint8_t *payload, uint32_t size, uint32_t seq)
 {
     int next = (s->sbuf_end + 1) % SBUF_NUM;
+    if(pthread_mutex_trylock(&s->sbuf[s->sbuf_end].occ_lock) != 0)
+        return false;
     /*if(next == s->swin_start)
     {
         printf("add_sbuf : sbuf is full\n");
         return;
     }*/
     struct sending *pac = &s->sbuf[s->sbuf_end];
+    printf("add_sbuf : loc = %d, seq = %u, size = %u\n", s->sbuf_end, seq, size);
+    //pac->payload = payload;
     memcpy(pac->payload, payload, size);
     pac->size = size;
     pac->seq = seq;
+    pac->sent = false;
     s->sbuf_end = next;
+
+    return true;
+}
+
+bool TCPAssignment::isfull_sbuf(struct socket_fd *s)
+{
+    return is_occupied(&s->sbuf[s->sbuf_end]);
+}
+
+bool TCPAssignment::is_occupied(struct sending *s)
+{
+    if(pthread_mutex_trylock(&s->occ_lock) != 0)
+        return true;
+    pthread_mutex_unlock(&s->occ_lock);
+    return false;
 }
 
 void TCPAssignment::try_send(struct socket_fd* s)
 {
+    /*
     if(pthread_mutex_trylock(&s->send_lock) != 0)
+    {
+        printf("try fail case\n");
         return;
-    
+    }
+    */
     uint32_t src_ip = s->src_ip;
 	uint32_t des_ip = s->des_ip;
 	uint16_t src_port = s->src_port;
@@ -1282,22 +1487,42 @@ void TCPAssignment::try_send(struct socket_fd* s)
 	uint16_t window = htons(WINDOW_SIZE);
 	uint16_t urg_ptr = 0;
     
-    while((s->sbuf_loc != s->sbuf_end) && (s->sbuf_loc != (s->swin_start + s->swin_num) % SBUF_NUM))
+    bool full = isfull_sbuf(s);
+    //printf("try_send : isfull_sbuf returned %d\n", full);
+    /*
+    printf("[[[TEST OCCUPIED]]]\n");
+    int i;
+    for(i = 0 ; i < SBUF_NUM ; i ++)
+        printf("occupied %d : %d\n", i, is_occupied(&s->sbuf[i]));
+    */
+    while(s->sbuf_loc != (s->swin_start + s->swin_num) % SBUF_NUM)
     {
+        if(s->sbuf_loc == s->sbuf_end)
+        {
+            if(full)
+                full = false;
+            else
+            {
+                printf("try_send : because here\n");
+                break;
+            }
+        }
         struct sending pac = s->sbuf[s->sbuf_loc];
         uint32_t seq_num = pac.seq;
         uint32_t ack_num = s->ack;
         size_t size = pac.size;
 
-        //printf("try_send : size = %lu, seq = %u\n", size, seq_num);
+        printf("try_send : size = %lu, seq = %u, loc = %d, sbuf_end = %d\n", size, seq_num, s->sbuf_loc, s->sbuf_end);
 	    seq_num = htonl(seq_num);
         ack_num = htonl(ack_num);
 	    writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr, pac.payload, size);
-        
+        s->sbuf[s->sbuf_loc].sent = true;
         s->sbuf_loc = (s->sbuf_loc + 1) % SBUF_NUM;
-        s->swin_start = (s->swin_start + 1) % SBUF_NUM; //  temp for reliable transfer
+        //s->swin_start = (s->swin_start + 1) % SBUF_NUM; //  temp for reliable transfer
     }
-    pthread_mutex_unlock(&s->send_lock);
+    printf("try_send end\n");
+
+    //pthread_mutex_unlock(&s->send_lock);
 }
 
 void TCPAssignment::enqueue(queue* q, queue_node* enter){

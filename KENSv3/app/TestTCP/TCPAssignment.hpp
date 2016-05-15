@@ -24,7 +24,7 @@
 #define WINDOW_NUM 100
 #define WINDOW_SIZE (MSS*WINDOW_NUM)
 #define RBUF_SIZE 300000
-#define SBUF_NUM 1000
+#define SBUF_NUM 200
 
 namespace E
 {
@@ -58,9 +58,24 @@ private:
 
 	struct sending
 	{
+		//uint8_t *payload;
 		uint8_t payload[MSS];
 		uint32_t size;
 		uint32_t seq;	//	host order
+		bool sent;
+		pthread_mutex_t occ_lock;	//	occupied
+	};
+
+	struct writing	//	blocked syscall_write
+	{
+		UUID syscallUUID;
+		//struct E::TCPAssignment::socket_fd *socket;
+		const void *buf;
+		size_t count;
+		size_t sent;
+		//uint32_t seq;
+		writing *prev;
+		writing *next;
 	};
 
     struct socket_fd
@@ -86,20 +101,25 @@ private:
 		int rbuf_start;
 		int rbuf_len;
 
-		struct sending sbuf[SBUF_NUM];
-		//int sbuf_start;
-		int swin_start;	//	= sbuf_start
-		int swin_num;
-		int sbuf_end;
-		int sbuf_loc;	//	sending location
-		
-		bool sending;
-		pthread_mutex_t send_lock;
-		
 		bool read_blocked;
 		UUID readUUID;
 		uint8_t *readbuf;
 		int readlen;
+
+		//struct sending *sbuf;
+		struct sending sbuf[SBUF_NUM];
+		//bool got_sbuf;
+		int swin_start;	//	= sbuf_start
+		int swin_num;
+		int sbuf_end;
+		int sbuf_loc;	//	sending location
+		uint32_t rack;	//	received ACK , host order
+		int dup_cnt;
+		
+		pthread_mutex_t send_lock;
+		
+		struct writing whead;
+		struct writing wtail;
 
 		//queue internal_buffer;
 		queue syn_queue;
@@ -141,8 +161,14 @@ private:
 	virtual bool write_rbuf(struct socket_fd *s, uint8_t *buf, uint16_t len);
 	virtual uint32_t eval_ACK(struct socket_fd *s);
 
-	virtual void add_sbuf(struct socket_fd* s, uint8_t *payload, uint32_t size, uint32_t seq);
+	virtual bool add_sbuf(struct socket_fd* s, uint8_t *payload, uint32_t size, uint32_t seq);
+	virtual bool isfull_sbuf(struct socket_fd *s);
+
+	virtual bool is_occupied(struct sending *s);
 	virtual void try_send(struct socket_fd *s);
+	virtual void block_write(UUID syscallUUID, struct socket_fd *s, const void *buf, size_t len, size_t sent);
+	virtual void unblock_write(struct socket_fd *s);
+	virtual bool socket_write(UUID syscallUUID, struct socket_fd *soc, const void *buf, size_t count, size_t sent, struct writing *w);
 
 	virtual void syscall_socket(UUID syscallUUID, int pid, int domain, int protocol);
     virtual void syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen);
