@@ -15,6 +15,10 @@
 #include <limits.h>
 #include <unistd.h>
 
+#define ALPHA 0.125
+#define BETA 0.25
+#define K 4
+
 namespace E
 {
 
@@ -504,19 +508,16 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
                         }
 
                         struct sending *pac = &s->sbuf[i];
-/*                        uint32_t pred_ack, sub = UINT_MAX - pac->seq;
-                        if(pac->size > sub)
-                            pred_ack = pac->size - sub - 1;
-                        else
-                            pred_ack = pac->seq + pac->size;
-  */                      
                         printf("3 dup loop : s->sbuf[%d]->seq = %u , duped ACK = %u\n", i, pac->seq, s->rack);
                         if(pac->seq == s->rack)
                         {
                             printf("ACK : 3 dup ack - seq found!\n");
                             s->sbuf_loc = i;
                             s->swin_num /= 2;
-                            s->swin_num += 1;
+							if(s->swin_num > window/MSS)
+								s->swin_num = window/MSS;
+							if(s->swin_num == 0)
+								s->swin_num ++;
                             try_send(s);
                             flag = false;
                             break;
@@ -565,12 +566,18 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
                 || ((ack_num < pred_ack) && ((ack_num < USHRT_MAX) && (pred_ack > UINT_MAX - USHRT_MAX)))
                 || (ack_num == pred_ack))
                 {
+					cancelTimer(pac->timerUUID);
+					update_rtt(s);
                     //printf("ack <= pred_ack case\n");
                     pthread_mutex_unlock(&s->sbuf[s->swin_start].occ_lock);
                     //printf("flag1\n");
                     s->swin_start = (s->swin_start + 1) % SBUF_NUM;
                     if(s->swin_num < 100)
                         s->swin_num ++;
+					if(s->swin_num > window/MSS)
+						s->swin_num = window/MSS;
+					if(s->swin_num == 0)
+						s->swin_num ++;
                     unblock_write(s);
                     //printf("flag2\n");
                     try_send(s);
@@ -592,8 +599,13 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 
 void TCPAssignment::timerCallback(void* payload)
 {
-    //Time t = this->getHost()->getSystem()->getCurrentTime();
-    //addTimer(payload, t);
+	capsule *cap = (capsule*)payload;
+	socket_fd *s = cap->socket;
+	s->sbuf_loc = cap->location;
+    s->swin_num /= 2;
+	if(s->swin_num == 0);
+    	s->swin_num ++;
+    try_send(s);
 }
 
 void TCPAssignment::print_rseq(struct socket_fd *s)
@@ -944,6 +956,10 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
     soc->whead.next = &soc->wtail;
     soc->wtail.prev = &soc->whead;
     soc->wtail.next = NULL;
+
+	soc->sent_time = 0;
+	soc->rtt = 60000000000LL;
+	soc->devrtt = 60000000000LL;
 
 	soc->src_ip = 0;
 	soc->des_ip = 0;
@@ -1469,6 +1485,20 @@ bool TCPAssignment::is_occupied(struct sending *s)
     return false;
 }
 
+void TCPAssignment::update_rtt(struct socket_fd *s)
+{
+	if(!s->sent_time)
+		return;
+	E::Time now = this->getHost()->getSystem()->getCurrentTime();
+	E::Time gap = now - s->sent_time;
+	s->rtt = (1 - ALPHA) * s->rtt + ALPHA * gap;
+	if(s->rtt > gap)
+		s->devrtt = (1 - BETA) * s->devrtt + BETA * (s->rtt - gap);
+	else
+		s->devrtt = (1 - BETA) * s->devrtt + BETA * (gap - s->rtt);
+	s->sent_time = 0;
+}
+
 void TCPAssignment::try_send(struct socket_fd* s)
 {
     /*
@@ -1507,15 +1537,23 @@ void TCPAssignment::try_send(struct socket_fd* s)
                 break;
             }
         }
-        struct sending pac = s->sbuf[s->sbuf_loc];
-        uint32_t seq_num = pac.seq;
+        struct sending *pac = &s->sbuf[s->sbuf_loc];
+        uint32_t seq_num = pac->seq;
         uint32_t ack_num = s->ack;
-        size_t size = pac.size;
+        size_t size = pac->size;
 
         printf("try_send : size = %lu, seq = %u, loc = %d, sbuf_end = %d\n", size, seq_num, s->sbuf_loc, s->sbuf_end);
 	    seq_num = htonl(seq_num);
         ack_num = htonl(ack_num);
-	    writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr, pac.payload, size);
+		
+		if(!s->sent_time)
+			s->sent_time = this->getHost()->getSystem()->getCurrentTime();
+		capsule *cap = (capsule*)malloc(sizeof(capsule));
+		cap->socket = s;
+		cap->location = s->sbuf_loc;
+		pac->timerUUID = this->addTimer(cap, s->rtt + K * s->devrtt);
+
+	    writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr, pac->payload, size);
         s->sbuf[s->sbuf_loc].sent = true;
         s->sbuf_loc = (s->sbuf_loc + 1) % SBUF_NUM;
         //s->swin_start = (s->swin_start + 1) % SBUF_NUM; //  temp for reliable transfer

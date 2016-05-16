@@ -63,6 +63,7 @@ private:
 		uint32_t size;
 		uint32_t seq;	//	host order
 		bool sent;
+		UUID timerUUID;
 		pthread_mutex_t occ_lock;	//	occupied
 	};
 
@@ -121,6 +122,10 @@ private:
 		struct writing whead;
 		struct writing wtail;
 
+		E::Time sent_time;
+		E::Time rtt;
+		E::Time devrtt;
+
 		//queue internal_buffer;
 		queue syn_queue;
 		queue established_queue;
@@ -140,6 +145,12 @@ private:
 		in_addr_t addr;
 		bound_port* prev;
 		bound_port* next;
+	};
+
+	struct capsule	//	time capsule
+	{
+		socket_fd* socket;
+		int location;
 	};
 
 	virtual void enqueue(queue* q, queue_node* enter);
@@ -166,6 +177,7 @@ private:
 
 	virtual bool is_occupied(struct sending *s);
 	virtual void try_send(struct socket_fd *s);
+	virtual void update_rtt(struct socket_fd *s);
 	virtual void block_write(UUID syscallUUID, struct socket_fd *s, const void *buf, size_t len, size_t sent);
 	virtual void unblock_write(struct socket_fd *s);
 	virtual bool socket_write(UUID syscallUUID, struct socket_fd *soc, const void *buf, size_t count, size_t sent, struct writing *w);
