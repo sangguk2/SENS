@@ -24,7 +24,7 @@
 #define WINDOW_NUM 100
 #define WINDOW_SIZE (MSS*WINDOW_NUM)
 #define RBUF_SIZE 300000
-#define SBUF_NUM 200
+#define SBUF_NUM 101
 
 namespace E
 {
@@ -62,8 +62,10 @@ private:
 		uint8_t payload[MSS];
 		uint32_t size;
 		uint32_t seq;	//	host order
-		bool sent;
+		//bool sent;
+		E::Time sent_time;
 		UUID timerUUID;
+		bool* got_ack;
 		pthread_mutex_t occ_lock;	//	occupied
 	};
 
@@ -101,15 +103,12 @@ private:
 		uint8_t rbuf[RBUF_SIZE];
 		int rbuf_start;
 		int rbuf_len;
-
 		bool read_blocked;
 		UUID readUUID;
 		uint8_t *readbuf;
 		int readlen;
 
-		//struct sending *sbuf;
 		struct sending sbuf[SBUF_NUM];
-		//bool got_sbuf;
 		int swin_start;	//	= sbuf_start
 		int swin_num;
 		int sbuf_end;
@@ -122,9 +121,9 @@ private:
 		struct writing whead;
 		struct writing wtail;
 
-		E::Time sent_time;
 		E::Time rtt;
 		E::Time devrtt;
+		bool timeout;
 
 		//queue internal_buffer;
 		queue syn_queue;
@@ -149,9 +148,15 @@ private:
 
 	struct capsule	//	time capsule
 	{
+		int type;
 		socket_fd* socket;
 		int location;
+		uint32_t seq;
+		bool* got_ack;
+		UUID timerUUID;
 	};
+
+	virtual E::Time now();
 
 	virtual void enqueue(queue* q, queue_node* enter);
 	virtual queue_node* dequeue(queue* q);
@@ -176,8 +181,8 @@ private:
 	virtual bool isfull_sbuf(struct socket_fd *s);
 
 	virtual bool is_occupied(struct sending *s);
-	virtual void try_send(struct socket_fd *s);
-	virtual void update_rtt(struct socket_fd *s);
+	virtual void try_send(struct socket_fd *s, bool re);
+	virtual void update_rtt(struct socket_fd *s, struct sending *pac);
 	virtual void block_write(UUID syscallUUID, struct socket_fd *s, const void *buf, size_t len, size_t sent);
 	virtual void unblock_write(struct socket_fd *s);
 	virtual bool socket_write(UUID syscallUUID, struct socket_fd *soc, const void *buf, size_t count, size_t sent, struct writing *w);
