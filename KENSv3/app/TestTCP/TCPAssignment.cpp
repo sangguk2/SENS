@@ -153,7 +153,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 
 	if( SYN && ACK ) // 3hand shaking client to server 
 	{
-        printf("SYN && ACK\n");
 		socket_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
 		{
@@ -192,7 +191,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	}
 	else if( SYN ) // 3hand shaking server to client 
 	{
-        printf("SYN\n");
 		socket_fd* trav;
 		uint32_t cur_ip; 
 		uint16_t cur_port;
@@ -272,7 +270,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	}
 	else if( FIN )
 	{
-        printf("FIN\n");
 		int context = 0;
 		socket_fd* trav;
 		for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
@@ -328,7 +325,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			}
 			else
 			{
-				//printf("FIN : status else case (%d)", trav->status);
 				return;
 			}
 
@@ -363,7 +359,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 					{
 						if(ans->status != 2)
 						{
-							printf("There is a socket in syn queue whose state is not 2\n");
 							return;
 						}
 						listen_soc = trav;
@@ -396,7 +391,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
                 manage_accept_queue(listen_soc);
 			}
 			else
-				printf("Recieved Ack_num != Sent Seq_num + 1\n");
 			return;
 		}
 
@@ -450,7 +444,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		else
 		{
 			context = 100;
-			printf("other case in ACK with status = %d\n", trav->status);
 		}
         
         if(tot_len > 0)
@@ -495,11 +488,9 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
             struct socket_fd *s = trav;
             if(ack_num == s->rack)
             {
-                printf("ack = %u is duped %d times\n", ack_num, s->dup_cnt);
                 
                 if(((++(s->dup_cnt)) % (1 * s->swin_num) == 3) || ((s->swin_num < 4) && ((s->dup_cnt % 3 == 0) && (s->dup_cnt != 0))))
                 {
-                    printf("3 dup case start with duped ACK = %u, src_port = %u\n", s->rack, src_port);
                     
                     bool ptimeout = s->timeout;
                     if(! s->timeout)
@@ -519,7 +510,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
                         if(ptimeout)
                         {
                             s->dup_cnt --;
-                            printf("3 dup not executed because during timeout\n");
                             break;
                         }
                         if(i == s->sbuf_end)
@@ -531,10 +521,8 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
                         }
 
                         struct sending *pac = &s->sbuf[i];
-                        printf("3 dup loop : s->sbuf[%d]->seq = %u , duped ACK = %u\n", i, pac->seq, s->rack);
                         if(pac->seq == s->rack)
                         {
-                            printf("ACK : 3 dup ack - seq found!\n");
                             s->sbuf_loc = i;
                             s->swin_num /= 2;
                             /*
@@ -550,7 +538,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
                     }
                     if((!(s->timeout)) && i == s->sbuf_end && flag)
                     {
-                        printf("ACK : 3 dup ack - not seq found\n");
                     }
                 }
             }
@@ -563,11 +550,8 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
             uint32_t first_seq = s->sbuf[s->swin_start].seq;
 		    if(ack_num < first_seq && !((ack_num < USHRT_MAX) && (first_seq > UINT_MAX - USHRT_MAX)))
             {
-                printf("ACK : too small ack received, ack_num = %u, first_seq = %u, len = %u, swin_start = %d, src_port = %u\n", ack_num, first_seq, s->sbuf[s->swin_start].size, s->swin_start, src_port);
-                printf("next seq = %u, %u, %u\n", s->sbuf[s->swin_start + 1].seq, s->sbuf[s->swin_start + 2].seq, s->sbuf[s->swin_start +3].seq);
                 return;
             }
-            printf("ACK : not small ack received, ack_num = %u, first_seq = %u, swin_start = %d, src_port = %u\n", ack_num, first_seq, s->swin_start, src_port);
             
             bool chance = isfull_sbuf(s);
             int i, end = s->sbuf_end;
@@ -586,7 +570,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
                     pred_ack = pac->size - sub - 1;
                 else
                     pred_ack = pac->seq + pac->size;
-                //printf("pred_ack = %u\n", pred_ack);
                 if(((ack_num > pred_ack) && !((ack_num > UINT_MAX - USHRT_MAX) && (pred_ack < USHRT_MAX)))
                 || ((ack_num < pred_ack) && ((ack_num < USHRT_MAX) && (pred_ack > UINT_MAX - USHRT_MAX)))
                 || (ack_num == pred_ack))
@@ -625,7 +608,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
                 }
                 else
                 {
-                    //printf("increasing swin_start loop : break with s->sbuf[%d]->seq = %u, pred_ack = %u\n", i, pac->seq, pred_ack);
                     break;
                 }
             }
@@ -633,7 +615,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 	}
 	else if( RST )
 	{
-		printf("recieved RST\n");
 	}
 }
 
@@ -668,12 +649,10 @@ void TCPAssignment::timerCallback(void* payload)
     
     if(s->sbuf[cap->location].seq != cap->seq)
     {
-        printf("timerCallback : Crazy case!!!\n");
         return;
     }
     if(cap->timerUUID != s->sbuf[cap->location].timerUUID)
     {
-        printf("timerCAllback : too old callback\n");
         return;
     } 
 
@@ -689,7 +668,6 @@ void TCPAssignment::timerCallback(void* payload)
     s->swin_start = s->sbuf_loc;
     
     int old_win = s->swin_num;
-    printf("timerCallback called with loc = %d , seq = %u , now = %ld, win_num = %d\n", s->sbuf_loc, s->sbuf[s->sbuf_loc].seq, now(), old_win);
     //s->swin_num = 1;
     /*s->swin_num /= 2;
 	if(s->swin_num == 0)
@@ -700,7 +678,6 @@ void TCPAssignment::timerCallback(void* payload)
     //s->swin_num = old_win;
     //s->sbuf_loc = old_loc;
     //free(cap);
-    printf("timerCallback finished with win_num = %d\n", s->swin_num);
 }
 
 void TCPAssignment::print_rseq(struct socket_fd *s)
@@ -760,10 +737,8 @@ bool TCPAssignment::store_rseq(struct socket_fd *s, uint32_t seq_num, uint16_t l
     int n = lookup_rseq(s, seq_num);
 	if(n < WINDOW_NUM && n >= 0)
     {
-        printf("store_rseq-already_exist\n");
 		return false;
     }
-    //printf("store_rseq : new store with seq=%u , len=%u\n", seq_num, (uint32_t)len);
     if(s->rseq_len == 0)
     {
 	    s->rseq[s->rseq_start] = seq_num;
@@ -800,7 +775,6 @@ bool TCPAssignment::store_rseq(struct socket_fd *s, uint32_t seq_num, uint16_t l
                 continue;
             if(i == 0)
             {
-                printf("store_rseq : surprize case\n");
                 return false;
             }
             for(i2 = s->rseq_len - 1 ; i2 >= i ; i2 --)
@@ -827,14 +801,12 @@ bool TCPAssignment::store_recv(struct socket_fd *s, uint8_t* payload, uint16_t l
 {
 	if(s->rseq_len == WINDOW_NUM)
     {
-        printf("store_recv-rseq full\n");
 		return false;
     }
     if(store_rseq(s, seq_num, len))
     {
 	    if(!write_rwin(s, payload, len, seq_num))
 	    {
-            printf("store_recv-rwin full\n");
 	        return false;
         }
     }
@@ -939,7 +911,6 @@ int TCPAssignment::move_rwin(struct socket_fd *s, int len)
             
                 s->rlen[s->rseq_start] = UINT_MAX - seq + 1 + next_seq;
 
-                printf("move_rwin : next_seq < seq case , crazy case, calculated len = %u\n", s->rlen[s->rseq_start]);
 
 			    return len;
             }
@@ -947,9 +918,6 @@ int TCPAssignment::move_rwin(struct socket_fd *s, int len)
 	}
 	if(s->rseq[(s->rseq_start + s->rseq_len- 1 + WINDOW_NUM) % WINDOW_NUM] + s->rlen[(s->rseq_start + s->rseq_len - 1 + WINDOW_NUM) % WINDOW_NUM] != next_seq)
 	{
-		printf("move_rwin : next_seq not equal error\n");
-		printf("seq=%u, len=%u, next_seq=%u\n", s->rseq[(s->rseq_start + s->rseq_len- 1 + WINDOW_NUM) % WINDOW_NUM], s->rlen[(s->rseq_start + s->rseq_len - 1 + WINDOW_NUM) % WINDOW_NUM], next_seq);
-        printf("rseq_start = %d, rseq_len = %d\n", s->rseq_start, s->rseq_len);
         print_rseq(s);
         return -1;
 	}
@@ -993,7 +961,6 @@ uint32_t TCPAssignment::eval_ACK(struct socket_fd *s)
 		s->ack = (s->ack < seq + len) ? seq + len : s->ack;
 	else
     {
-        //printf("eval_ACK : s->ack = %u , pre_seq = %u, pre_len = %u, pre_seq+pre_len = %u\n", s->ack, pre_seq, pre_len, pre_seq + pre_len);
         if((int)s->ack < 0 && (int)(pre_seq + pre_len)>= 0)
             s->ack = pre_seq + pre_len;
 		else
@@ -1135,13 +1102,11 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int pr
 {
 	socket_fd* soc = create_socket(syscallUUID, pid, domain, protocol);
 	
-    //printf("syscall_socket is called with pid = %d , allocated fd = %d\n", pid, soc->fd);
     returnSystemCall(syscallUUID, soc->fd);
 }
 
 void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog)
 {
-    //printf("syscall_listen is called with pid = %d , fd = %d\n", pid, fd);
 	socket_fd *f = get_socket(pid, fd);
 	f->syn_queue.current_size = 0;
 	f->syn_queue.max_size = backlog;
@@ -1170,7 +1135,6 @@ void TCPAssignment::manage_accept_queue(socket_fd* soc)
 
 void TCPAssignment::syscall_accept(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t *addrlen)
 {
-    //printf("syscall_accept is called with pid = %d , fd = %d\n", pid, fd);
     socket_fd* soc = get_socket(pid, fd);
 
     queue_node* newq = (queue_node*)malloc(sizeof(queue_node));
@@ -1238,18 +1202,15 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
 
 void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr *addr, socklen_t addrlen)
 {
-    //printf("syscall_connect is called with pid = %d, fd = %d\n", pid, fd);
  	socket_fd *f = get_socket(pid, fd);
 
 	if(!f)
 	{
-		printf("connect : invalid fd\n");
 		returnSystemCall(syscallUUID, -1);
 		return;
 	}
 	if(f->status != 0 && f->status != 1)
 	{
-		printf("connect : wrong socket status. status = %d\n", f->status);
 		returnSystemCall(syscallUUID, -1);
 		return;
 	}
@@ -1277,7 +1238,6 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 		    {
 			    if(min == USHRT_MAX)
 			    {
-				    printf("connect : ports are full\n");
 				    returnSystemCall(syscallUUID, -1);
 				    return;
 			    }
@@ -1343,11 +1303,9 @@ void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int fd, void *buf, s
 		readable = s->rbuf_len;
 		if(readable <= 0)
 		{
-			printf("syscall_read : readable <= 0 case\n");
 			return;
 		}
 		size_t read = ((int)s->rbuf_len > (int)count) ? count : s->rbuf_len;
-        //printf("syscall_read : %d %d %d\n", s->rbuf_l
 		returnSystemCall(syscallUUID, read_rbuf(s, (uint8_t*)buf, (int)read));
 		return;
 	}	
@@ -1371,7 +1329,6 @@ void TCPAssignment::unblock_write(struct socket_fd *s)
 {
     if(s->whead.next == &s->wtail)
     {
-        printf("unblock_write : there is no blocked syscall_write\n");
         return;
     }
     //printf("unblock_write : blocked syscall_write exists\n");
@@ -1390,7 +1347,6 @@ void TCPAssignment::unblock_write(struct socket_fd *s)
 
 void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, const void *buf, size_t count)
 {
-    printf("syscall_write called with syscallUUID = %lu\n", syscallUUID);
     socket_fd *s = get_socket(pid, fd); 
     if(s->whead.next != &s->wtail)
     {
@@ -1425,7 +1381,6 @@ bool TCPAssignment::socket_write(UUID syscallUUID, struct socket_fd *soc, const 
         uint32_t seq_num = soc->seq;
         //uint32_t ack_num = soc->ack;
         size_t templen = (count - i > MSS)?MSS:(count - i);
-        //printf("syscall_write : sent seq_num = %u\n", soc->seq);
 
         if(!add_sbuf(soc, from + i, templen, seq_num))
         {
@@ -1453,7 +1408,6 @@ bool TCPAssignment::socket_write(UUID syscallUUID, struct socket_fd *soc, const 
     }
     try_send(soc, false);
     returnSystemCall(syscallUUID, count + sent);
-    printf("syscall_write returns with syscallUUID = %lu\n", syscallUUID);
     return true;
 }
 
@@ -1523,7 +1477,6 @@ void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, socka
 	socket_fd* soc = get_socket(pid, fd);
 	if(!soc)
 	{
-		printf("getsockname : invalid fd\n");
 		returnSystemCall(syscallUUID, -1);
 		return;
 	}
@@ -1558,7 +1511,6 @@ bool TCPAssignment::add_sbuf(struct socket_fd* s, uint8_t *payload, uint32_t siz
         return;
     }*/
     struct sending *pac = &s->sbuf[s->sbuf_end];
-    printf("add_sbuf : loc = %d, seq = %u, size = %u\n", s->sbuf_end, seq, size);
     //pac->payload = payload;
     memcpy(pac->payload, payload, size);
     pac->size = size;
@@ -1606,7 +1558,6 @@ void TCPAssignment::update_rtt(struct socket_fd *s, struct sending *pac)
 		s->devrtt = (1 - BETA) * s->devrtt + BETA * (s->rtt - gap);
 	else
 		s->devrtt = (1 - BETA) * s->devrtt + BETA * (gap - s->rtt);
-	printf("update_rtt : rtt = %ld , devrtt = %ld, gap = %ld, now = %ld, sent_time = %ld\n", s->rtt, s->devrtt, gap, curr, pac->sent_time);
     pac->sent_time = 0;
 }
 
@@ -1629,12 +1580,10 @@ void TCPAssignment::try_send(struct socket_fd* s, bool re)
 	uint16_t urg_ptr = 0;
     
     bool full = isfull_sbuf(s);
-    //printf("try_send : isfull_sbuf returned %d\n", full);
     /*
     printf("[[[TEST OCCUPIED]]]\n");
     int i;
     for(i = 0 ; i < SBUF_NUM ; i ++)
-        printf("occupied %d : %d\n", i, is_occupied(&s->sbuf[i]));
     */
     bool change = true;
     while(s->sbuf_loc != (s->swin_start + s->swin_num) % SBUF_NUM)
@@ -1674,13 +1623,11 @@ void TCPAssignment::try_send(struct socket_fd* s, bool re)
         cap->seq = seq_num;
         cap->got_ack = pac->got_ack;
 
-        printf("try_send : size = %lu, seq = %u, loc = %d, sbuf_end = %d, now = %ld, start = %d, win_num = %d\n, des_port = %u\n", size, seq_num, s->sbuf_loc, s->sbuf_end, now(), s->swin_start, s->swin_num, ntohs(des_port));
 	    seq_num = htonl(seq_num);
         ack_num = htonl(ack_num);
 	    
 		cap->timerUUID = this->addTimer(cap, s->rtt + (K * s->devrtt) + 10000000);
         pac->timerUUID = cap->timerUUID;
-        printf("addTimer with rtt = %ld , devrtt = %ld , total = %ld, now = %ld\n", s->rtt , s->devrtt , s->rtt + (K * s->devrtt), now());
         //printf("after addTimer\n");
 	    writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr, pac->payload, size);
         //printf("after writePacket\n");
