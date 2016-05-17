@@ -15,8 +15,8 @@
 #include <limits.h>
 #include <unistd.h>
 
-#define ALPHA 0.125  //  0.125
-#define BETA 0.25    //  0.25
+#define ALPHA 0.125
+#define BETA 0.25
 #define K 4
 
 namespace E
@@ -292,9 +292,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
                 trav->ack ++;
             seq_num = trav->seq;
             ack_num = trav->ack;
-			//seq_num = ack_num + 1;
-            //ack_num = seq_num = 1;
-            //trav->ack = ack_num;
 			ack_num = htonl(ack_num);
 			seq_num = htonl(seq_num);
 			
@@ -305,20 +302,17 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 
 			if(trav->status == 4)	//	ESTABLISHED
 			{
-				//printf("stop establishing\n");
 				writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
 				trav->status = 5;
 			}
 			else if(trav->status == 7)	//	FIN_WAIT_1
 			{
-				//printf("stop fin-wait-1\n");
 				writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
 				trav->status = 8;
 			}
 			else if(trav->status == 9)	//	FIN_WAIT_2
 			{
 				writePacket(&des_ip, &src_ip, &des_port, &src_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr);
-				//trav->status = 10;
 				UUID id = trav->syscallUUID;
 				free_socket(trav->pid, trav->fd);
 				returnSystemCall(id, 0);
@@ -394,7 +388,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			return;
 		}
 
-        //printf("finding simultaneous opening socket\n");
         //check if there is simultaneous opening socket
         for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
 		{
@@ -525,10 +518,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
                         {
                             s->sbuf_loc = i;
                             s->swin_num /= 2;
-                            /*
-							if(s->swin_num > window/MSS)
-								s->swin_num = window/MSS;
-                            */
 							if(s->swin_num == 0)
 								s->swin_num ++;
                             try_send(s, true);
@@ -582,29 +571,14 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
                     {
 					    update_rtt(s, pac);
                     }
-                    //printf("ack <= pred_ack case\n");
                     pthread_mutex_unlock(&s->sbuf[s->swin_start].occ_lock);
-                    //printf("flag1\n");
                     s->swin_start = (s->swin_start + 1) % SBUF_NUM;
                     if(s->swin_num < 100)
                         s->swin_num ++;
-                    /*
-					if(s->swin_num > window/MSS)
-                    {
-                        int prev = s->swin_num;
-						s->swin_num = window/MSS;
-                        if(s->swin_num == 0)
-                            s->swin_num ++;
-                        s->sbuf_loc = (s->swin_start + s->swin_num - 1 + SBUF_NUM) % SBUF_NUM;
-                        //s->sbuf_loc = (s->sbuf_loc + s->swin_num - prev + SBUF_NUM ) % SBUF_NUM;
-                    }
-                    */
-					else if(s->swin_num == 0)
+   					else if(s->swin_num == 0)
 						s->swin_num ++;
                     unblock_write(s);
-                    //printf("flag2\n");
                     try_send(s, false);
-                    //manage timer
                 }
                 else
                 {
@@ -627,22 +601,18 @@ void TCPAssignment::timerCallback(void* payload)
     if(cap->type == 1)
     {
         s->timeout = false;
-        //free(cap);
         return;
     }
     if(*(cap->got_ack))
     {
         if(s->sbuf[cap->location].seq == cap->seq)
             s->sbuf[cap->location].timerUUID = 0;
-        //free(cap->got_ack);
-        //free(cap);
         return;
     }
     if(s->timeout == true)
     {
         capsule *newcap = (capsule*)malloc(sizeof(capsule));
         memcpy(newcap, cap, sizeof(capsule));
-        //free(cap);
         this->addTimer(newcap, (s->rtt + (K * s->devrtt)) / 10);
         return;
     }
@@ -662,22 +632,11 @@ void TCPAssignment::timerCallback(void* payload)
     newcap->socket = s;
     this->addTimer(newcap, 1.3 * (s->rtt + (K * s->devrtt)));
     
-    //int old_loc = s->sbuf_loc;
     s->sbuf_loc = cap->location;
     int old_start = s->swin_start;
     s->swin_start = s->sbuf_loc;
-    
-    int old_win = s->swin_num;
-    //s->swin_num = 1;
-    /*s->swin_num /= 2;
-	if(s->swin_num == 0)
-    	s->swin_num ++;*/
-    //s->sbuf_loc = (s->sbuf_loc + s->swin_num - win + SBUF_NUM ) % SBUF_NUM;
-    try_send(s, true);
+       try_send(s, true);
     s->swin_start = old_start;
-    //s->swin_num = old_win;
-    //s->sbuf_loc = old_loc;
-    //free(cap);
 }
 
 void TCPAssignment::print_rseq(struct socket_fd *s)
@@ -1019,8 +978,6 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
     soc->wtail.prev = &soc->whead;
     soc->wtail.next = NULL;
 
-	//soc->sent_time = 0;
-    //soc->pred_ack = 0;
 	soc->rtt = 100000000LL;
 	soc->devrtt = 100000000LL;
     soc->timeout = false;
@@ -1057,43 +1014,7 @@ TCPAssignment::socket_fd* TCPAssignment::create_socket(UUID syscallUUID, int pid
 	soc->prev->next = soc;
 	socket_tail.prev = soc;
     
-    /*
-    struct socket_fd *trav;
-    int fd1, fd2 = 2;
-    bool inserted = false;
-    for(trav = socket_head.next ; trav != &socket_tail ; trav = trav->next)
-    {
-        if(trav->pid != soc->pid)
-            continue;
-        fd1 = fd2;
-        fd2 = trav->fd;
-        if(fd2 < fd1 + 1)
-        {
-            printf("fild descripter sorting error\n");
-            exit(0);
-        }
-        if(fd2 > fd1 + 1)
-        {
-            soc->fd = fd1 + 1;
-            soc->next = trav;
-            soc->prev = trav->prev;
-            trav->prev->next = soc;
-            trav->prev = soc;
-            inserted = true;
-            break;
-        }
-    }
-    if(!inserted)
-    {
-        soc->fd = fd2 + 1;
-        soc->prev = trav->prev;
-        soc->next = trav;
-        soc->prev->next = soc;
-        trav->prev = soc;
-    }
-    */
-
-   	pthread_mutex_unlock(&fd_lock);
+       	pthread_mutex_unlock(&fd_lock);
 	
     return soc;
 }
@@ -1196,7 +1117,6 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, sockaddr *ad
     p->prev->next = p;
     trav->prev = p;
     
-    //printf("bind completed. return : 0\n");
     returnSystemCall(syscallUUID, 0);
 }
 
@@ -1279,7 +1199,6 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, sockaddr 
 
 void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int fd, void *buf, size_t count)
 {
-    //printf("syscall_read called\n");
     if(count == 0)
     {
         returnSystemCall(syscallUUID, 0);
@@ -1287,10 +1206,8 @@ void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int fd, void *buf, s
     }
     socket_fd* s = get_socket(pid, fd);
     size_t readable;
-	//if(s->rseq_len == 0 || (s->rseq_len == 1 && (s->rlen[s->rseq_start] == 0)))
 	if(s->rbuf_len == 0)
     {
-        //printf("read-block\n");
 		readable = 0;	//	maybe can be deleted
 		s->read_blocked = true;
 		s->readUUID = syscallUUID;
@@ -1299,7 +1216,6 @@ void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int fd, void *buf, s
 	}
 	else
 	{
-        //printf("read-now\n");
 		readable = s->rbuf_len;
 		if(readable <= 0)
 		{
@@ -1331,7 +1247,6 @@ void TCPAssignment::unblock_write(struct socket_fd *s)
     {
         return;
     }
-    //printf("unblock_write : blocked syscall_write exists\n");
     struct writing *w = s->whead.next;
     while(socket_write(w->syscallUUID, s, w->buf, w->count, w->sent, w))
     {
@@ -1359,27 +1274,12 @@ void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, const void 
 
 bool TCPAssignment::socket_write(UUID syscallUUID, struct socket_fd *soc, const void *buf, size_t count, size_t sent, struct writing *w)
 {   
-    //printf("socket_write called with syscallUUID = %lu\n", syscallUUID);
-        
-    /*
-    uint32_t src_ip = soc->src_ip;
-	uint32_t des_ip = soc->des_ip;
-	uint16_t src_port = soc->src_port;
-	uint16_t des_port = soc->des_port;
-	uint8_t head_len = 5<<4;
-	uint8_t flag = 0x10;
-	uint16_t window = htons(WINDOW_SIZE);
-	uint16_t urg_ptr = 0;
-    */
     uint8_t *from = (uint8_t*)buf;
-    
     size_t i = 0;
     
-    //returnSystemCall(syscallUUID, count);
     while(i < count)
     {
         uint32_t seq_num = soc->seq;
-        //uint32_t ack_num = soc->ack;
         size_t templen = (count - i > MSS)?MSS:(count - i);
 
         if(!add_sbuf(soc, from + i, templen, seq_num))
@@ -1394,11 +1294,6 @@ bool TCPAssignment::socket_write(UUID syscallUUID, struct socket_fd *soc, const 
             block_write(syscallUUID, soc, from + i, count - i, i);
             return false;
         }
-        /*  
-	    seq_num = htonl(seq_num);
-        ack_num = htonl(ack_num);
-	    writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr, from + i, templen);
-        */
         uint32_t sub = UINT_MAX - seq_num;
         if(templen > sub)
             soc->seq = templen - sub - 1;
@@ -1413,7 +1308,6 @@ bool TCPAssignment::socket_write(UUID syscallUUID, struct socket_fd *soc, const 
 
 void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int fd)
 {
-    //printf("syscall_close called\n");
 	socket_fd* soc = get_socket(pid, fd);
 	int S = soc->status;
 	switch(S)
@@ -1505,25 +1399,13 @@ bool TCPAssignment::add_sbuf(struct socket_fd* s, uint8_t *payload, uint32_t siz
     int next = (s->sbuf_end + 1) % SBUF_NUM;
     if(pthread_mutex_trylock(&s->sbuf[s->sbuf_end].occ_lock) != 0)
         return false;
-    /*if(next == s->swin_start)
-    {
-        printf("add_sbuf : sbuf is full\n");
-        return;
-    }*/
+    
     struct sending *pac = &s->sbuf[s->sbuf_end];
-    //pac->payload = payload;
     memcpy(pac->payload, payload, size);
     pac->size = size;
     pac->seq = seq;
     pac->sent_time = 0;
-    //pac->sent = false;
-    //printf("before malloc bool\n");
-    /*if(pac->got_ack)
-    {
-        *(pac->got_ack) = true;
-    }*/
     pac->got_ack = (bool*)malloc(sizeof(bool));
-    //printf("after malloc bool\n");
     *(pac->got_ack) = false;
     s->sbuf_end = next;
 
@@ -1563,13 +1445,6 @@ void TCPAssignment::update_rtt(struct socket_fd *s, struct sending *pac)
 
 void TCPAssignment::try_send(struct socket_fd* s, bool re)
 {
-    /*
-    if(pthread_mutex_trylock(&s->send_lock) != 0)
-    {
-        printf("try fail case\n");
-        return;
-    }
-    */
     uint32_t src_ip = s->src_ip;
 	uint32_t des_ip = s->des_ip;
 	uint16_t src_port = s->src_port;
@@ -1580,12 +1455,8 @@ void TCPAssignment::try_send(struct socket_fd* s, bool re)
 	uint16_t urg_ptr = 0;
     
     bool full = isfull_sbuf(s);
-    /*
-    printf("[[[TEST OCCUPIED]]]\n");
-    int i;
-    for(i = 0 ; i < SBUF_NUM ; i ++)
-    */
     bool change = true;
+    
     while(s->sbuf_loc != (s->swin_start + s->swin_num) % SBUF_NUM)
     {
         if(s->sbuf_loc == s->sbuf_end)
@@ -1593,30 +1464,16 @@ void TCPAssignment::try_send(struct socket_fd* s, bool re)
             if(full)
                 full = false;
             else
-            {
-                //printf("try_send : because here\n");
                 break;
-            }
         }
         struct sending *pac = &s->sbuf[s->sbuf_loc];
         uint32_t seq_num = pac->seq;
         uint32_t ack_num = s->ack;
         size_t size = pac->size;
-      /* 
-        if(pac->sent_time == 0)
-        { 
-            uint32_t sub = UINT_MAX - seq_num;
-            if(size > sub)
-                s->pred_ack = size - sub - 1;
-            else
-                s->pred_ack = seq_num + size;
-        }
-*/
         if(change)
 	        pac->sent_time = now();
-        //printf("before malloc capsule\n");	
 		struct capsule *cap = (struct capsule*)malloc(sizeof(struct capsule));
-        //printf("after malloc capsule\n");
+        
         cap->type = 0;  //  for retransmission
 		cap->socket = s;
 		cap->location = s->sbuf_loc;
@@ -1628,25 +1485,12 @@ void TCPAssignment::try_send(struct socket_fd* s, bool re)
 	    
 		cap->timerUUID = this->addTimer(cap, s->rtt + (K * s->devrtt) + 10000000);
         pac->timerUUID = cap->timerUUID;
-        //printf("after addTimer\n");
 	    writePacket(&src_ip, &des_ip, &src_port, &des_port, &seq_num, &ack_num, &head_len, &flag, &window, &urg_ptr, pac->payload, size);
-        //printf("after writePacket\n");
-        //s->sbuf[s->sbuf_loc].sent = true;
         s->sbuf_loc = (s->sbuf_loc + 1) % SBUF_NUM;
-        //s->swin_start = (s->swin_start + 1) % SBUF_NUM; //  temp for reliable transfer
 
         if(change && re)
-        {
             change = false;
-            //break;
-        }
     }
-    
-    //if(re)
-    //    s->sbuf_loc = (s->swin_start + s->swin_num) % SBUF_NUM;
-    //printf("try_send end\n");
-
-    //pthread_mutex_unlock(&s->send_lock);
 }
 
 void TCPAssignment::enqueue(queue* q, queue_node* enter){
@@ -1736,5 +1580,4 @@ int TCPAssignment::free_socket(int pid, int fd)
 	return 0;
 }
 
-//namespace E closing parenthesis
 }
