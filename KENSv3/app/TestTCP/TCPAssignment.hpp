@@ -58,25 +58,21 @@ private:
 
 	struct sending
 	{
-		//uint8_t *payload;
 		uint8_t payload[MSS];
 		uint32_t size;
 		uint32_t seq;	//	host order
-		//bool sent;
 		E::Time sent_time;
 		UUID timerUUID;
 		bool* got_ack;
-		pthread_mutex_t occ_lock;	//	occupied
+		bool occupied;
 	};
 
 	struct writing	//	blocked syscall_write
 	{
 		UUID syscallUUID;
-		//struct E::TCPAssignment::socket_fd *socket;
 		const void *buf;
 		size_t count;
 		size_t sent;
-		//uint32_t seq;
 		writing *prev;
 		writing *next;
 	};
@@ -116,8 +112,6 @@ private:
 		uint32_t rack;	//	received ACK , host order
 		int dup_cnt;
 		
-		pthread_mutex_t send_lock;
-		
 		struct writing whead;
 		struct writing wtail;
 
@@ -125,11 +119,9 @@ private:
 		E::Time devrtt;
 		bool timeout;
 
-		//queue internal_buffer;
 		queue syn_queue;
 		queue established_queue;
 		queue accept_queue;
-        //queue received_pakcets;
 
 		uint32_t src_ip, des_ip;	//	network order
 		uint16_t src_port, des_port;	//	network order
@@ -171,7 +163,6 @@ private:
 	virtual bool write_rwin(struct socket_fd *s, uint8_t* buf, uint16_t len, uint32_t seq_num);
 	virtual int move_rwin(struct socket_fd *s, int len);
 	virtual bool store_rseq(struct socket_fd *s, uint32_t seq_num, uint16_t len);
-	virtual void print_rseq(struct socket_fd *s);
 	virtual bool store_recv(struct socket_fd *s, uint8_t* payload, uint16_t len, uint32_t seq_num);
 	virtual int read_rbuf(struct socket_fd *s, uint8_t *buf, int len);
 	virtual bool write_rbuf(struct socket_fd *s, uint8_t *buf, uint16_t len);
@@ -180,7 +171,6 @@ private:
 	virtual bool add_sbuf(struct socket_fd* s, uint8_t *payload, uint32_t size, uint32_t seq);
 	virtual bool isfull_sbuf(struct socket_fd *s);
 
-	virtual bool is_occupied(struct sending *s);
 	virtual void try_send(struct socket_fd *s, bool re);
 	virtual void update_rtt(struct socket_fd *s, struct sending *pac);
 	virtual void block_write(UUID syscallUUID, struct socket_fd *s, const void *buf, size_t len, size_t sent);
@@ -202,7 +192,6 @@ private:
 
 	struct socket_fd socket_head, socket_tail;
 	struct bound_port port_head, port_tail;
-	pthread_mutex_t fd_lock;
 
 private:
 	virtual void timerCallback(void* payload) final;
